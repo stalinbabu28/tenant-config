@@ -2,8 +2,11 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import nodemailer from "nodemailer";
+import crypto from "crypto";
 import Admin from "../models/Admin.js";
-
+import dotenv from "dotenv";
+dotenv.config();
 const router = express.Router();
 
 // ── Lightweight Structured Logger ──────────────────────────────────────────────
@@ -26,6 +29,36 @@ const logger = {
       `[${new Date().toISOString()}] [ERROR] [Auth] ${msg} ${metaStr}`,
     );
   },
+};
+
+// ── Email Setup & Helpers ──────────────────────────────────────────────
+const transporter = nodemailer.createTransport({
+  secure: true,
+  host: "smtp.gmail.com",
+  port: 465,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// Generate a secure, random 6-digit OTP
+const generateOTP = () => crypto.randomInt(100000, 999999).toString();
+
+// Function to send the email
+const sendOTPEmail = async (email, otp) => {
+  try {
+    await transporter.sendMail({
+      to: email,
+      subject: "Your MFA Login Code",
+      text: `Your verification code is: ${otp}\n\nThis code will expire in 5 minutes. Do not share this code with anyone.`,
+      html: `<p>Your verification code is: <strong>${otp}</strong></p><p>This code will expire in 5 minutes. Do not share this code with anyone.</p>`,
+    });
+    logger.info("OTP Email sent successfully", { email });
+  } catch (error) {
+    logger.error("Failed to send OTP email", { email, error: error.message });
+    throw new Error("Failed to send email");
+  }
 };
 
 // ✅ SIGNUP (for testing)
@@ -81,17 +114,20 @@ router.post("/login", async (req, res) => {
       return res.json({ success: false, message: "Invalid credentials" });
     }
 
-    const otp = "123456"; // mock OTP
+    // Generate secure OTP
+    const otp = generateOTP();
 
     admin.otp = otp;
     admin.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
     await admin.save();
 
+    // Send the email
+    await sendOTPEmail(email, otp);
     const sessionToken = jwt.sign({ email }, process.env.JWT_SECRET, {
       expiresIn: "5m",
     });
 
-    logger.info("Password verified, OTP generated", {
+    logger.info("Password verified, OTP generated and sent", {
       email,
       adminId: admin._id,
     });
@@ -145,7 +181,7 @@ router.post("/verify-mfa", async (req, res) => {
 
     res.cookie("jwt", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // Best practice update
+      secure: process.env.NODE_ENV === "production",
       sameSite: "Strict",
     });
 
@@ -214,11 +250,15 @@ router.post("/resend-otp", async (req, res) => {
       return res.json({ success: false, message: "Invalid session" });
     }
 
-    const otp = "123456";
+    // Generate secure OTP
+    const otp = generateOTP();
 
     admin.otp = otp;
     admin.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
     await admin.save();
+
+    // Send the email
+    await sendOTPEmail(email, otp);
 
     logger.info("OTP resent successfully", { email });
     res.json({
