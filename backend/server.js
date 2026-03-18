@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.routes.js";
 import AuthConfig from "./models/AuthConfig.js";
 import authConfigRoutes from "./routes/authConfig.routes.js";
+import { requireAuth } from "./middleware/auth.middleware.js";
 
 dotenv.config();
 
@@ -20,7 +21,7 @@ app.use(cors({
 }));
 
 // Routes
-app.use("/api/auth-config", authConfigRoutes);
+app.use("/api/auth-config", requireAuth, authConfigRoutes);
 app.use("/api/admin", authRoutes);
 // Test route
 app.get("/", (req, res) => {

@@ -7,7 +7,12 @@ const router = express.Router();
 router.get("/:tenantId", async (req, res) => {
   try {
     const tenantId = new mongoose.Types.ObjectId(req.params.tenantId);
-
+    if (req.user.tenantId !== req.params.tenantId) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden - Tenant mismatch"
+      });
+    }
     const config = await AuthConfig.findOne({ tenantId });
 
     if (!config) {
@@ -57,6 +62,18 @@ router.get("/:tenantId", async (req, res) => {
 router.put("/:tenantId", async (req, res) => {
   try {
     const tenantId = new mongoose.Types.ObjectId(req.params.tenantId);
+    if (req.user.tenantId !== req.params.tenantId) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden - Tenant mismatch"
+      });
+    }
+    if (req.user.role !== "TENANT_ADMIN") {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden - Admin access required"
+      });
+    }
     const body = req.body;
 
     // 🔥 Transform Frontend → DB
