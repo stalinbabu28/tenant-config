@@ -9,16 +9,17 @@ import authConfigRoutes from "./routes/authConfig.routes.js";
 import { requireAuth } from "./middleware/auth.middleware.js";
 
 dotenv.config();
-
 const app = express();
 
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({
-  origin: "http://localhost:5173",
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  }),
+);
 
 // Routes
 app.use("/api/auth-config", requireAuth, authConfigRoutes);
@@ -27,7 +28,6 @@ app.use("/api/admin", authRoutes);
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
-
 // (Optional test)
 const test = async () => {
   const data = await AuthConfig.find();
@@ -36,7 +36,8 @@ const test = async () => {
 test();
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI)
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => {
     console.log("MongoDB Connected");
 
@@ -44,4 +45,4 @@ mongoose.connect(process.env.MONGO_URI)
       console.log("Server running on port 3001");
     });
   })
-  .catch(err => console.log(err));
+  .catch((err) => console.log(err));
