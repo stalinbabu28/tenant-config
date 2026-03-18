@@ -100,7 +100,7 @@ router.get("/:tenantId", async (req, res) => {
         requireSpecialChars: config.passwordPolicy.requireSpecialChar,
         expiryDays: config.passwordPolicy.expiryDays,
       },
-      allowedRoles: ["TENANT_ADMIN"], // mock for now
+      allowedRoles: ["TENANT_ADMIN","DOMAIN_ADMIN"], // mock for now
       sessionTimeoutMinutes: config.sessionRules.timeoutMinutes,
       maxLoginAttempts: config.sessionRules.maxLoginAttempts,
       lockoutDurationMinutes: config.sessionRules.lockoutDurationMinutes,
@@ -145,7 +145,7 @@ router.put("/:tenantId", async (req, res) => {
       });
     }
 
-    if (userRole !== "TENANT_ADMIN") {
+    if (userRole !== "TENANT_ADMIN" && userRole !== "DOMAIN_ADMIN") {
       logger.warn("Forbidden update attempt: Admin access required", {
         requestedTenant,
         userId,

@@ -42,7 +42,7 @@ router.post("/signup", async (req, res) => {
       email,
       passwordHash: hashed,
       tenantId: new mongoose.Types.ObjectId(tenantId),
-      role: role || "TENANT_ADMIN",
+      role: role || "DOMAIN_ADMIN",
     });
 
     logger.info("Admin account created successfully", {
