@@ -3,36 +3,69 @@ import AuthConfig from "../models/AuthConfig.js";
 import mongoose from "mongoose";
 const router = express.Router();
 
+// ── Lightweight Structured Logger ──────────────────────────────────────────────
+const logger = {
+  info: (msg, meta = {}) => {
+    const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : "";
+    console.log(
+      `[${new Date().toISOString()}] [INFO]  [AuthConfig] ${msg} ${metaStr}`,
+    );
+  },
+  warn: (msg, meta = {}) => {
+    const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : "";
+    console.warn(
+      `[${new Date().toISOString()}] [WARN]  [AuthConfig] ${msg} ${metaStr}`,
+    );
+  },
+  error: (msg, meta = {}) => {
+    const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : "";
+    console.error(
+      `[${new Date().toISOString()}] [ERROR] [AuthConfig] ${msg} ${metaStr}`,
+    );
+  },
+};
+
 // ✅ GET auth config
 router.get("/:tenantId", async (req, res) => {
+  const { tenantId: requestedTenant } = req.params;
+  const userTenant = req.user?.tenantId;
+  const userId = req.user?.id;
+
+  logger.info("Initiating config fetch", { requestedTenant, userId });
+
   try {
-    const tenantId = new mongoose.Types.ObjectId(req.params.tenantId);
-    if (req.user.tenantId !== req.params.tenantId) {
+    const tenantId = new mongoose.Types.ObjectId(requestedTenant);
+
+    if (userTenant !== requestedTenant) {
+      logger.warn("Forbidden access attempt: Tenant mismatch", {
+        requestedTenant,
+        userTenant,
+        userId,
+      });
       return res.status(403).json({
         success: false,
-        message: "Forbidden - Tenant mismatch"
+        message: "Forbidden - Tenant mismatch",
       });
     }
+
     const config = await AuthConfig.findOne({ tenantId });
 
     if (!config) {
+      logger.info("No config found for tenant", { requestedTenant });
       return res.json({
         success: true,
         message: "No config found",
-        data: null
+        data: null,
       });
     }
 
     // 🔥 Transform DB → Frontend format
     const response = {
       tenantId: config.tenantId.toString(),
-
       passwordEnabled: config.loginMethods.emailPassword,
       ssoEnabled: config.loginMethods.googleSSO,
       otpEnabled: config.loginMethods.otpLogin,
-
       mfaEnabled: config.mfa.enabled,
-
       passwordPolicy: {
         minLength: config.passwordPolicy.minLength,
         requireUppercase: config.passwordPolicy.requireUppercase,
@@ -40,88 +73,104 @@ router.get("/:tenantId", async (req, res) => {
         requireSpecialChars: config.passwordPolicy.requireSpecialChar,
         expiryDays: config.passwordPolicy.expiryDays,
       },
-
       allowedRoles: ["TENANT_ADMIN"], // mock for now
-
       sessionTimeoutMinutes: config.sessionRules.timeoutMinutes,
       maxLoginAttempts: config.sessionRules.maxLoginAttempts,
       lockoutDurationMinutes: config.sessionRules.lockoutDurationMinutes,
     };
 
+    logger.info("Config fetched successfully", { requestedTenant });
     res.json({
       success: true,
       message: "Auth config fetched",
-      data: response
+      data: response,
     });
-
   } catch (err) {
+    logger.error("Failed to fetch config", {
+      requestedTenant,
+      error: err.message,
+    });
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 // ✅ UPDATE (or CREATE if not exists)
 router.put("/:tenantId", async (req, res) => {
+  const { tenantId: requestedTenant } = req.params;
+  const userTenant = req.user?.tenantId;
+  const userRole = req.user?.role;
+  const userId = req.user?.id;
+
+  logger.info("Initiating config update", { requestedTenant, userId });
+
   try {
-    const tenantId = new mongoose.Types.ObjectId(req.params.tenantId);
-    if (req.user.tenantId !== req.params.tenantId) {
+    const tenantId = new mongoose.Types.ObjectId(requestedTenant);
+
+    if (userTenant !== requestedTenant) {
+      logger.warn("Forbidden update attempt: Tenant mismatch", {
+        requestedTenant,
+        userTenant,
+        userId,
+      });
       return res.status(403).json({
         success: false,
-        message: "Forbidden - Tenant mismatch"
+        message: "Forbidden - Tenant mismatch",
       });
     }
-    if (req.user.role !== "TENANT_ADMIN") {
+
+    if (userRole !== "TENANT_ADMIN") {
+      logger.warn("Forbidden update attempt: Admin access required", {
+        requestedTenant,
+        userId,
+        userRole,
+      });
       return res.status(403).json({
         success: false,
-        message: "Forbidden - Admin access required"
+        message: "Forbidden - Admin access required",
       });
     }
+
     const body = req.body;
 
     // 🔥 Transform Frontend → DB
     const updateData = {
       tenantId,
-
       loginMethods: {
         emailPassword: body.passwordEnabled,
         googleSSO: body.ssoEnabled,
-        otpLogin: body.otpEnabled
+        otpLogin: body.otpEnabled,
       },
-
       passwordPolicy: {
         minLength: body.passwordPolicy?.minLength,
         requireUppercase: body.passwordPolicy?.requireUppercase,
         requireNumbers: body.passwordPolicy?.requireNumbers,
         requireSpecialChar: body.passwordPolicy?.requireSpecialChars,
-        expiryDays: body.passwordPolicy?.expiryDays
+        expiryDays: body.passwordPolicy?.expiryDays,
       },
-
       mfa: {
         enabled: body.mfaEnabled,
-        methods: body.mfaEnabled ? ["OTP"] : []
+        methods: body.mfaEnabled ? ["OTP"] : [],
       },
-
       sessionRules: {
         timeoutMinutes: body.sessionTimeoutMinutes,
         maxLoginAttempts: body.maxLoginAttempts,
-        lockoutDurationMinutes: body.lockoutDurationMinutes
-      }
+        lockoutDurationMinutes: body.lockoutDurationMinutes,
+      },
     };
 
     const updated = await AuthConfig.findOneAndUpdate(
       { tenantId },
       updateData,
-      { new: true, upsert: true }
+      { new: true, upsert: true },
     );
 
     // 🔥 Transform DB → Frontend (IMPORTANT)
     const response = {
       tenantId: updated.tenantId.toString(),
-
       passwordEnabled: updated.loginMethods.emailPassword,
       ssoEnabled: updated.loginMethods.googleSSO,
       otpEnabled: updated.loginMethods.otpLogin,
-
       mfaEnabled: updated.mfa.enabled,
-
       passwordPolicy: {
         minLength: updated.passwordPolicy.minLength,
         requireUppercase: updated.passwordPolicy.requireUppercase,
@@ -129,27 +178,31 @@ router.put("/:tenantId", async (req, res) => {
         requireSpecialChars: updated.passwordPolicy.requireSpecialChar,
         expiryDays: updated.passwordPolicy.expiryDays,
       },
-
       allowedRoles: ["TENANT_ADMIN"],
-
       sessionTimeoutMinutes: updated.sessionRules.timeoutMinutes,
       maxLoginAttempts: updated.sessionRules.maxLoginAttempts,
       lockoutDurationMinutes: updated.sessionRules.lockoutDurationMinutes,
     };
 
+    logger.info("Config updated successfully", { requestedTenant });
     res.json({
       success: true,
       message: "Authentication configuration updated successfully",
-      data: response
+      data: response,
     });
-
   } catch (err) {
+    logger.error("Failed to update config", {
+      requestedTenant,
+      error: err.message,
+    });
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-
+// ✅ VALIDATE config
 router.post("/validate", async (req, res) => {
+  logger.info("Initiating payload validation");
+
   try {
     const payload = req.body || {};
     const errors = [];
@@ -163,7 +216,7 @@ router.post("/validate", async (req, res) => {
       allowedRoles = [],
       sessionTimeoutMinutes,
       maxLoginAttempts,
-      lockoutDurationMinutes
+      lockoutDurationMinutes,
     } = payload;
 
     // 🔐 1. At least one auth method
@@ -173,16 +226,15 @@ router.post("/validate", async (req, res) => {
 
     // 🔐 2. MFA dependency
     if (mfaEnabled && !passwordEnabled && !otpEnabled) {
-      errors.push("MFA requires either password or OTP to be enabled as a first factor.");
+      errors.push(
+        "MFA requires either password or OTP to be enabled as a first factor.",
+      );
     }
 
     // 🔐 3. SSO rules
     if (ssoEnabled && (!allowedRoles || allowedRoles.length === 0)) {
       errors.push("SSO is enabled but no roles are assigned to use it.");
     }
-
-    // 🔐 (Optional - future DB validation)
-    // if roles don't exist in tenant → skip for now
 
     // 🔐 4. Password policy
     if (passwordPolicy.minLength !== undefined) {
@@ -220,29 +272,34 @@ router.post("/validate", async (req, res) => {
 
     // ✅ FINAL RESPONSE
     if (errors.length > 0) {
+      logger.warn("Payload validation failed", {
+        errorCount: errors.length,
+        errors,
+      });
       return res.json({
         success: true,
         message: "Validation failed.",
         data: {
           valid: false,
-          errors
-        }
+          errors,
+        },
       });
     }
 
+    logger.info("Payload validation passed");
     res.json({
       success: true,
       message: "Validation passed.",
       data: {
         valid: true,
-        errors: []
-      }
+        errors: [],
+      },
     });
-
   } catch (err) {
+    logger.error("Failed during payload validation", { error: err.message });
     res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message,
     });
   }
 });
