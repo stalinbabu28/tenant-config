@@ -1,0 +1,48 @@
+import express from "express";
+import Client from "../models/Client.js";
+import { generateServiceToken } from "../utils/jwt.util.js";
+import bcrypt from "bcrypt";
+
+const router = express.Router();
+
+router.post("/token", async (req, res) => {
+    try {
+        const { clientId, clientSecret } = req.body;
+
+        const client = await Client.findOne({ clientId });
+
+        if (!client || !(await bcrypt.compare(clientSecret, client.clientSecret))) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid client credentials"
+            });
+        }
+        const ip = req.ip;
+
+        if (client.allowedIPs.length && !client.allowedIPs.includes(ip)) {
+            return res.status(403).json({
+                success: false,
+                message: "IP not allowed"
+            });
+        }
+        // 🔐 Generate JWT
+        const token = generateServiceToken({
+            service: client.clientId,
+            scope: client.scope
+        });
+
+        res.json({
+            success: true,
+            message: "Token generated",
+            data: {
+                accessToken: token,
+                expiresIn: "10m"
+            }
+        });
+
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+export default router;
