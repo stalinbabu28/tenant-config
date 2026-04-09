@@ -1,31 +1,8 @@
 import Domain from "../models/Domain.js";
 import mongoose from "mongoose";
 
-export const getDomainTree = async (tenantId) => {
-  const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
-
-  const tree = await Domain.aggregate([
-    {
-      $match: {
-        tenantId: tenantObjectId,
-        parentDomainId: null
-      }
-    },
-    {
-      $graphLookup: {
-        from: "domains",
-        startWith: "$_id",
-        connectFromField: "_id",
-        connectToField: "parentDomainId",
-        restrictSearchWithMatch: {
-          tenantId: tenantObjectId
-        },
-        as: "children"
-      }
-    }
-  ]);
-
-  return tree.map((root) => {
+const buildDomainForest = (roots) => {
+  return roots.map((root) => {
     const allNodes = [
       {
         ...root,
@@ -50,4 +27,36 @@ export const getDomainTree = async (tenantId) => {
 
     return byId.get(root._id.toString());
   });
+};
+
+export const getDomainTree = async (tenantId, rootDomainIds = []) => {
+  const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
+  const rootObjectIds = rootDomainIds.map(
+    (rootId) => new mongoose.Types.ObjectId(rootId)
+  );
+
+  const tree = await Domain.aggregate([
+    {
+      $match: {
+        tenantId: tenantObjectId,
+        ...(rootObjectIds.length
+          ? { _id: { $in: rootObjectIds } }
+          : { parentDomainId: null })
+      }
+    },
+    {
+      $graphLookup: {
+        from: "domains",
+        startWith: "$_id",
+        connectFromField: "_id",
+        connectToField: "parentDomainId",
+        restrictSearchWithMatch: {
+          tenantId: tenantObjectId
+        },
+        as: "children"
+      }
+    }
+  ]);
+
+  return buildDomainForest(tree);
 };

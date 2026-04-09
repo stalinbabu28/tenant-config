@@ -237,6 +237,7 @@ router.post("/verify-mfa", async (req, res) => {
     const token = jwt.sign(
       {
         adminId: admin._id,
+        domainAdminId: admin.role === "DOMAIN_ADMIN" ? admin._id : null,
         tenantId: admin.tenantId,
         role: admin.role,
       },
