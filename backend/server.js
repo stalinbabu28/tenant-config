@@ -10,6 +10,7 @@ import { requireAuth } from "./middleware/auth.middleware.js";
 import externalRoutes from "./routes/external.routes.js";
 import tokenRoutes from "./routes/token.routes.js";
 import domainRoutes from "./routes/domain.routes.js";
+import mailingListRoutes from "./routes/mailingList.routes.js";
 
 dotenv.config();
 const app = express();
@@ -29,7 +30,8 @@ app.use("/api/auth-config", requireAuth, authConfigRoutes);
 app.use("/api/admin", authRoutes);
 app.use("/api/external", externalRoutes);
 app.use("/api/token", tokenRoutes);
-app.use("/api/domains", requireAuth, domainRoutes);// Test route
+app.use("/api/domains", requireAuth, domainRoutes);
+app.use("/api/mailing-lists", requireAuth, mailingListRoutes);
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
