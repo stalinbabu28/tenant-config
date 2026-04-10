@@ -1,4 +1,7 @@
+import mongoose from "mongoose";
+
 const isSameTenant = (left, right) => String(left) === String(right);
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 
 export const verifyDomainAccess = ({
   domainAccessService = null,
@@ -78,6 +81,13 @@ export const verifyDomainAccess = ({
 
       if (!targetDomainId) {
         return next();
+      }
+
+      if (!isValidObjectId(targetDomainId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid domain id format"
+        });
       }
 
       const hasAccess = await resolvedDomainAccessService.isDomainWithinScope({

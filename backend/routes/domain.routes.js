@@ -1,4 +1,5 @@
 import express from "express";
+import mongoose from "mongoose";
 import Domain from "../models/Domain.js";
 import { isCycle } from "../utils/cycleCheck.util.js";
 import { verifyDomainAccess } from "../middleware/domainAccess.middleware.js";
@@ -7,6 +8,7 @@ import { createDomainAccessService } from "../services/domainAccess.service.js";
 const router = express.Router();
 
 const isSameTenant = (a, b) => String(a) === String(b);
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const domainAccessService = createDomainAccessService();
 
 // 2. CREATE DOMAIN NODE
@@ -22,6 +24,13 @@ router.post(
   }
 
   if (req.body.parentDomainId) {
+    if (!isValidObjectId(req.body.parentDomainId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid parentDomainId format"
+      });
+    }
+
     const parent = await Domain.findById(req.body.parentDomainId).select("tenantId");
 
     if (!parent) {
@@ -55,6 +64,13 @@ router.get(
   "/tree/:tenantId",
   verifyDomainAccess({ targetTenantParam: "tenantId" }),
   async (req, res) => {
+    if (!isValidObjectId(req.params.tenantId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid tenantId format"
+      });
+    }
+
     // Retrieves a flat list of all domains; frontend handles recursive tree building
     // Note: The getDomainTree util was removed in favor of a standard flat query
     let query = { tenantId: req.params.tenantId };
@@ -76,6 +92,13 @@ router.put(
   "/:id",
   verifyDomainAccess({ targetDomainParam: "id" }),
   async (req, res) => {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid domain id format"
+    });
+  }
+
   const { parentDomainId } = req.body;
 
   const existing = await Domain.findById(req.params.id).select("tenantId");
@@ -95,6 +118,13 @@ router.put(
   }
 
   if (parentDomainId) {
+    if (!isValidObjectId(parentDomainId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid parentDomainId format"
+      });
+    }
+
     const parent = await Domain.findById(parentDomainId).select("tenantId");
 
     if (!parent) {
@@ -154,6 +184,13 @@ router.delete(
   "/:id",
   verifyDomainAccess({ targetDomainParam: "id" }),
   async (req, res) => {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid domain id format"
+      });
+    }
+
     if (req.user.role === "DOMAIN_ADMIN") {
       return res.status(403).json({
         success: false,
