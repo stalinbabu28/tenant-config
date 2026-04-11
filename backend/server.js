@@ -21,7 +21,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: process.env.ALLOWED_ORIGINS.split(","),
     credentials: true,
   }),
 );
@@ -33,12 +33,15 @@ app.use("/api/central-auth", centralAuthRoutes);
 app.use("/api/admin", authRoutes);
 app.use("/api/external", externalRoutes);
 app.use("/api/token", tokenRoutes);
-// Test route
+app.use("/api/domains", requireAuth, domainRoutes);
+app.use("/api/mailing-lists", requireAuth, mailingListRoutes);
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
 // MongoDB connection
+mongoose
+  .connect(process.env.MONGO_URI)
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {

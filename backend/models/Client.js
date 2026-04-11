@@ -24,4 +24,4 @@ const clientSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-export default mongoose.model("Client", clientSchema);
+export default mongoose.model("Client", clientSchema, "Client");

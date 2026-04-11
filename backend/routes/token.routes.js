@@ -11,12 +11,34 @@ router.post("/token", async (req, res) => {
 
         const client = await Client.findOne({ clientId });
 
-        if (!client || client.clientSecret !== clientSecret) {
+        if (!client) {
             return res.status(401).json({
                 success: false,
                 message: "Invalid client credentials"
             });
         }
+
+        const storedSecret = client.clientSecret;
+        const isBcryptHash = typeof storedSecret === "string" && storedSecret.startsWith("$2");
+        const isSecretValid = isBcryptHash
+            ? await bcrypt.compare(clientSecret, storedSecret)
+            : storedSecret === clientSecret;
+
+        if (!isSecretValid) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid client credentials"
+            });
+        }
+
+        if (!isBcryptHash) {
+            const rehashedSecret = await bcrypt.hash(clientSecret, 10);
+            await Client.updateOne(
+                { _id: client._id },
+                { $set: { clientSecret: rehashedSecret } }
+            );
+        }
+
         const ip = req.ip;
 
         if (client.allowedIPs.length && !client.allowedIPs.includes(ip)) {

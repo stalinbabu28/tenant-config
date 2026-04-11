@@ -148,6 +148,11 @@ router.post("/signup", async (req, res) => {
       email,
       tenantId,
     });
+    logger.info("Admin account created successfully", {
+      adminId: admin._id,
+      email,
+      tenantId,
+    });
     res.json({
       success: true,
       message: "Admin account created. Please log in.",
@@ -192,7 +197,7 @@ router.post("/login", async (req, res) => {
       expiresIn: "5m",
     });
 
-    logger.info("Password verified, OTP generated and sent", {
+    logger.info("Password verified, OTP generated", {
       email,
       adminId: admin._id,
     });
@@ -237,6 +242,7 @@ router.post("/verify-mfa", async (req, res) => {
     const token = jwt.sign(
       {
         adminId: admin._id,
+        domainAdminId: admin.role === "DOMAIN_ADMIN" ? admin._id : null,
         tenantId: admin.tenantId,
         role: admin.role,
       },
