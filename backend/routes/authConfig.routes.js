@@ -36,7 +36,7 @@ router.get("/:tenantId", async (req, res) => {
   try {
     const tenantId = new mongoose.Types.ObjectId(requestedTenant);
 
-    if (userTenant !== requestedTenant) {
+    if (userTenant && userTenant !== requestedTenant) {
       logger.warn("Forbidden access attempt: Tenant mismatch", {
         requestedTenant,
         userTenant,
@@ -100,7 +100,7 @@ router.get("/:tenantId", async (req, res) => {
         requireSpecialChars: config.passwordPolicy.requireSpecialChar,
         expiryDays: config.passwordPolicy.expiryDays,
       },
-      allowedRoles: ["TENANT_ADMIN","DOMAIN_ADMIN"], // mock for now
+      allowedRoles: ["TENANT_ADMIN", "DOMAIN_ADMIN"], // mock for now
       sessionTimeoutMinutes: config.sessionRules.timeoutMinutes,
       maxLoginAttempts: config.sessionRules.maxLoginAttempts,
       lockoutDurationMinutes: config.sessionRules.lockoutDurationMinutes,

@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const adminSchema = new mongoose.Schema(
+const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
 
@@ -16,12 +16,6 @@ const adminSchema = new mongoose.Schema(
     domainId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
-    },
-
-    role: {
-      type: String,
-      enum: ["TENANT_ADMIN", "DOMAIN_ADMIN"],
-      required: true,
     },
 
     failedLoginAttempts: {
@@ -40,4 +34,4 @@ const adminSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-export default mongoose.model("Admin", adminSchema);
+export default mongoose.model("User", userSchema, "tenantusers");

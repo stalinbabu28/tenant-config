@@ -6,12 +6,13 @@ import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.routes.js";
 import AuthConfig from "./models/AuthConfig.js";
 import authConfigRoutes from "./routes/authConfig.routes.js";
+import centralAuthRoutes from "./routes/centralAuth.routes.js";
+import domainRoutes from "./routes/domains.routes.js";
 import { requireAuth } from "./middleware/auth.middleware.js";
 import externalRoutes from "./routes/external.routes.js";
 import tokenRoutes from "./routes/token.routes.js";
-import domainRoutes from "./routes/domain.routes.js";
-import mailingListRoutes from "./routes/mailingList.routes.js";
-
+import dns from "node:dns";
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 dotenv.config();
 const app = express();
 
@@ -27,6 +28,8 @@ app.use(
 
 // Routes
 app.use("/api/auth-config", requireAuth, authConfigRoutes);
+app.use("/api/domains", requireAuth, domainRoutes);
+app.use("/api/central-auth", centralAuthRoutes);
 app.use("/api/admin", authRoutes);
 app.use("/api/external", externalRoutes);
 app.use("/api/token", tokenRoutes);
