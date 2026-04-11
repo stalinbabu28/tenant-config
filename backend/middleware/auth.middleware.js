@@ -1,20 +1,13 @@
-import jwt from "jsonwebtoken";
+import { verifyAdminToken } from "../utils/jwt.util.js";
 
 export const requireAuth = (req, res, next) => {
   try {
-    let token;
-
-    // 1) Check Authorization header (Bearer token)
     const authHeader = req.headers.authorization;
 
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.split(" ")[1];
-    }
-
-    // 2) Fallback to cookie
-    if (!token && req.cookies.jwt) {
-      token = req.cookies.jwt;
-    }
+    const token =
+      authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : null;
 
     if (!token) {
       return res.status(401).json({
@@ -23,8 +16,7 @@ export const requireAuth = (req, res, next) => {
       });
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = verifyAdminToken(token);
 
     req.user = decoded;
 

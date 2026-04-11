@@ -4,11 +4,12 @@ import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.routes.js";
-import AuthConfig from "./models/AuthConfig.js";
 import authConfigRoutes from "./routes/authConfig.routes.js";
 import centralAuthRoutes from "./routes/centralAuth.routes.js";
-import domainRoutes from "./routes/domains.routes.js";
+import domainRoutes from "./routes/domain.routes.js";
+import mailingListRoutes from "./routes/mailingList.routes.js";
 import { requireAuth } from "./middleware/auth.middleware.js";
+import { enforceAuthPolicy } from "./middleware/enforceAuthPolicy.middleware.js";
 import externalRoutes from "./routes/external.routes.js";
 import tokenRoutes from "./routes/token.routes.js";
 import dns from "node:dns";
@@ -27,21 +28,18 @@ app.use(
 );
 
 // Routes
-app.use("/api/auth-config", requireAuth, authConfigRoutes);
-app.use("/api/domains", requireAuth, domainRoutes);
+app.use("/api/auth-config", requireAuth, enforceAuthPolicy, authConfigRoutes);
+app.use("/api/domains", requireAuth, enforceAuthPolicy, domainRoutes);
+app.use("/api/mailing-lists", requireAuth, enforceAuthPolicy, mailingListRoutes);
 app.use("/api/central-auth", centralAuthRoutes);
 app.use("/api/admin", authRoutes);
 app.use("/api/external", externalRoutes);
 app.use("/api/token", tokenRoutes);
-app.use("/api/domains", requireAuth, domainRoutes);
-app.use("/api/mailing-lists", requireAuth, mailingListRoutes);
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
 // MongoDB connection
-mongoose
-  .connect(process.env.MONGO_URI)
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {

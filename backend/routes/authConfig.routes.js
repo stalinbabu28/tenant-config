@@ -34,9 +34,16 @@ router.get("/:tenantId", async (req, res) => {
   logger.info("Initiating config fetch", { requestedTenant, userId });
 
   try {
-    const tenantId = new mongoose.Types.ObjectId(requestedTenant);
+    if (!userTenant) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
 
-    if (userTenant && userTenant !== requestedTenant) {
+    const tenantId = new mongoose.Types.ObjectId(userTenant);
+
+    if (String(userTenant) !== String(requestedTenant)) {
       logger.warn("Forbidden access attempt: Tenant mismatch", {
         requestedTenant,
         userTenant,
@@ -79,6 +86,7 @@ router.get("/:tenantId", async (req, res) => {
           maxLoginAttempts: 5,
           lockoutDurationMinutes: 15,
         },
+        allowedRoles: ["TENANT_ADMIN", "DOMAIN_ADMIN"],
       });
 
       logger.info("Default config created and saved to database", {
@@ -100,7 +108,7 @@ router.get("/:tenantId", async (req, res) => {
         requireSpecialChars: config.passwordPolicy.requireSpecialChar,
         expiryDays: config.passwordPolicy.expiryDays,
       },
-      allowedRoles: ["TENANT_ADMIN", "DOMAIN_ADMIN"], // mock for now
+      allowedRoles: config.allowedRoles ?? ["TENANT_ADMIN", "DOMAIN_ADMIN"],
       sessionTimeoutMinutes: config.sessionRules.timeoutMinutes,
       maxLoginAttempts: config.sessionRules.maxLoginAttempts,
       lockoutDurationMinutes: config.sessionRules.lockoutDurationMinutes,
@@ -131,9 +139,16 @@ router.put("/:tenantId", async (req, res) => {
   logger.info("Initiating config update", { requestedTenant, userId });
 
   try {
-    const tenantId = new mongoose.Types.ObjectId(requestedTenant);
+    if (!userTenant) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
 
-    if (userTenant !== requestedTenant) {
+    const tenantId = new mongoose.Types.ObjectId(userTenant);
+
+    if (String(userTenant) !== String(requestedTenant)) {
       logger.warn("Forbidden update attempt: Tenant mismatch", {
         requestedTenant,
         userTenant,
@@ -183,6 +198,9 @@ router.put("/:tenantId", async (req, res) => {
         maxLoginAttempts: body.maxLoginAttempts,
         lockoutDurationMinutes: body.lockoutDurationMinutes,
       },
+      allowedRoles: Array.isArray(body.allowedRoles)
+        ? body.allowedRoles
+        : ["TENANT_ADMIN", "DOMAIN_ADMIN"],
     };
 
     const updated = await AuthConfig.findOneAndUpdate(
@@ -205,7 +223,7 @@ router.put("/:tenantId", async (req, res) => {
         requireSpecialChars: updated.passwordPolicy.requireSpecialChar,
         expiryDays: updated.passwordPolicy.expiryDays,
       },
-      allowedRoles: ["TENANT_ADMIN"],
+      allowedRoles: updated.allowedRoles ?? ["TENANT_ADMIN", "DOMAIN_ADMIN"],
       sessionTimeoutMinutes: updated.sessionRules.timeoutMinutes,
       maxLoginAttempts: updated.sessionRules.maxLoginAttempts,
       lockoutDurationMinutes: updated.sessionRules.lockoutDurationMinutes,

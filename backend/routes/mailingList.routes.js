@@ -1,6 +1,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import MailingList from "../models/MailingList.js";
+import Domain from "../models/Domain.js";
 
 const router = express.Router();
 
@@ -8,6 +9,12 @@ const router = express.Router();
 // Endpoint: GET /api/mailing-lists/:tenantId
 router.get("/:tenantId", async (req, res) => {
   try {
+    if (String(req.params.tenantId) !== String(req.user.tenantId)) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Forbidden - Tenant mismatch." });
+    }
+
     // Validate that the tenantId parameter is a valid MongoDB ObjectId
     if (!mongoose.Types.ObjectId.isValid(req.params.tenantId)) {
       return res
@@ -16,7 +23,7 @@ router.get("/:tenantId", async (req, res) => {
     }
 
     // Retrieves all mailing lists for a tenant.
-    const lists = await MailingList.find({ tenantId: req.params.tenantId });
+    const lists = await MailingList.find({ tenantId: req.user.tenantId });
 
     // Response (200 OK)
     res.status(200).json(lists);
@@ -31,6 +38,15 @@ router.get("/:tenantId", async (req, res) => {
 // Endpoint: POST /api/mailing-lists
 router.post("/", async (req, res) => {
   try {
+    if (
+      req.body.tenantId &&
+      String(req.body.tenantId) !== String(req.user.tenantId)
+    ) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Forbidden - Tenant mismatch." });
+    }
+
     // Validate that the linked domain ID is a valid MongoDB ObjectId
     if (!mongoose.Types.ObjectId.isValid(req.body.domainLinkedId)) {
       return res
@@ -38,8 +54,23 @@ router.post("/", async (req, res) => {
         .json({ success: false, message: "Invalid Linked Domain ID format." });
     }
 
+    const linkedDomain = await Domain.findOne({
+      _id: req.body.domainLinkedId,
+      tenantId: req.user.tenantId,
+    });
+
+    if (!linkedDomain) {
+      return res.status(403).json({
+        success: false,
+        message: "Linked domain is outside tenant scope.",
+      });
+    }
+
     // Creates a new dynamic mailing list linked to a specific domain.
-    const newList = await MailingList.create(req.body);
+    const newList = await MailingList.create({
+      ...req.body,
+      tenantId: req.user.tenantId,
+    });
     res.status(201).json(newList);
   } catch (error) {
     res
@@ -71,6 +102,41 @@ router.put("/:id", async (req, res) => {
         .json({ success: false, message: "Mailing list not found" });
     }
 
+    if (String(existingList.tenantId) !== String(req.user.tenantId)) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Forbidden - Tenant mismatch." });
+    }
+
+    if (
+      req.body.tenantId &&
+      String(req.body.tenantId) !== String(req.user.tenantId)
+    ) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Forbidden - Tenant mismatch." });
+    }
+
+    if (req.body.domainLinkedId) {
+      if (!mongoose.Types.ObjectId.isValid(req.body.domainLinkedId)) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid Linked Domain ID format." });
+      }
+
+      const linkedDomain = await Domain.findOne({
+        _id: req.body.domainLinkedId,
+        tenantId: req.user.tenantId,
+      });
+
+      if (!linkedDomain) {
+        return res.status(403).json({
+          success: false,
+          message: "Linked domain is outside tenant scope.",
+        });
+      }
+    }
+
     // Check if includeChildren is changing (Requires background job trigger)
     const oldIncludeChildren = existingList.dynamicRule?.includeChildren;
     const newIncludeChildren = req.body.dynamicRule?.includeChildren;
@@ -82,7 +148,12 @@ router.put("/:id", async (req, res) => {
     // Updates settings such as isActive or dynamicRule.
     const updatedList = await MailingList.findByIdAndUpdate(
       req.params.id,
-      { $set: req.body },
+      {
+        $set: {
+          ...req.body,
+          tenantId: req.user.tenantId,
+        },
+      },
       { new: true, runValidators: true },
     );
 

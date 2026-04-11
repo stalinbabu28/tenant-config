@@ -36,6 +36,11 @@ const authConfigSchema = new mongoose.Schema(
       maxLoginAttempts: { type: Number, default: 5 },
       lockoutDurationMinutes: { type: Number, default: 15 },
     },
+
+    allowedRoles: {
+      type: [String],
+      default: [],
+    },
   },
   { timestamps: true },
 );

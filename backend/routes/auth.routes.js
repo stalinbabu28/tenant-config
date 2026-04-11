@@ -1,10 +1,17 @@
 import express from "express";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
 import Admin from "../models/Admin.js";
+import { resolveAuthConfig } from "../utils/authConfig.util.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
+import { enforceAuthPolicy } from "../middleware/enforceAuthPolicy.middleware.js";
+import {
+  issueAdminMfaSessionToken,
+  issueAdminToken,
+  verifyAdminMfaSessionToken,
+} from "../utils/jwt.util.js";
 import dotenv from "dotenv";
 dotenv.config();
 const router = express.Router();
@@ -44,6 +51,13 @@ const transporter = nodemailer.createTransport({
 
 // Generate a secure, random 6-digit OTP
 const generateOTP = () => crypto.randomInt(100000, 999999).toString();
+const isLockedOut = (entity) =>
+  !!entity.lockoutUntil && entity.lockoutUntil > new Date();
+
+const lockoutRemainingMinutes = (entity) => {
+  if (!entity.lockoutUntil) return 0;
+  return Math.ceil((entity.lockoutUntil - new Date()) / 60000);
+};
 
 // Function to send the email
 const sendOTPEmail = async (email, otp) => {
@@ -177,36 +191,128 @@ router.post("/login", async (req, res) => {
       return res.json({ success: false, message: "Invalid credentials" });
     }
 
-    const valid = await bcrypt.compare(password, admin.passwordHash);
-
-    if (!valid) {
-      logger.warn("Login failed: Invalid password", { email });
-      return res.json({ success: false, message: "Invalid credentials" });
+    if (isLockedOut(admin)) {
+      const minutes = lockoutRemainingMinutes(admin);
+      logger.warn("Login blocked: account locked", { email, minutes });
+      return res.status(403).json({
+        success: false,
+        message: `Account locked. Try again in ${minutes} minute${
+          minutes === 1 ? "" : "s"
+        }.`,
+      });
     }
 
-    // Generate secure OTP
-    const otp = generateOTP();
+    const authConfig = await resolveAuthConfig(admin.tenantId, admin.domainId ?? null);
 
-    admin.otp = otp;
-    admin.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+    if (
+      Array.isArray(authConfig.allowedRoles) &&
+      authConfig.allowedRoles.length > 0 &&
+      !authConfig.allowedRoles.includes(admin.role)
+    ) {
+      logger.warn("Login blocked: role restricted by policy", {
+        email,
+        role: admin.role,
+      });
+      return res.status(403).json({
+        success: false,
+        message: "This role is not allowed by tenant policy",
+      });
+    }
+
+    if (!authConfig.loginMethods.emailPassword && !authConfig.loginMethods.otpLogin) {
+      return res.status(403).json({
+        success: false,
+        message: "No supported login method is enabled for this tenant",
+      });
+    }
+
+    if (authConfig.loginMethods.emailPassword) {
+      if (!password) {
+        return res.status(400).json({
+          success: false,
+          message: "Password is required for this tenant configuration",
+        });
+      }
+
+      const valid = await bcrypt.compare(password, admin.passwordHash);
+      if (!valid) {
+        admin.failedLoginAttempts += 1;
+        if (
+          authConfig.sessionRules.maxLoginAttempts > 0 &&
+          admin.failedLoginAttempts >= authConfig.sessionRules.maxLoginAttempts
+        ) {
+          admin.lockoutUntil = new Date(
+            Date.now() + authConfig.sessionRules.lockoutDurationMinutes * 60000,
+          );
+        }
+
+        await admin.save();
+        logger.warn("Login failed: Invalid password", { email });
+        return res.status(401).json({ success: false, message: "Invalid credentials" });
+      }
+    }
+
+    admin.failedLoginAttempts = 0;
+    admin.lockoutUntil = null;
+
+    if (authConfig.mfa.enabled || authConfig.loginMethods.otpLogin) {
+      const otp = generateOTP();
+
+      admin.otp = otp;
+      admin.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+      await admin.save();
+
+      await sendOTPEmail(email, otp);
+      const sessionToken = issueAdminMfaSessionToken({
+        adminId: admin._id.toString(),
+        email,
+        tenantId: admin.tenantId.toString(),
+      });
+
+      logger.info("Password verified, OTP generated", {
+        email,
+        adminId: admin._id,
+      });
+      return res.json({
+        success: true,
+        message: "Password verified. OTP sent to registered email.",
+        data: {
+          requiresMFA: true,
+          sessionToken,
+        },
+      });
+    }
+
+    admin.lastActivityAt = new Date();
     await admin.save();
 
-    // Send the email
-    await sendOTPEmail(email, otp);
-    const sessionToken = jwt.sign({ email }, process.env.JWT_SECRET, {
-      expiresIn: "5m",
+    const token = issueAdminToken({
+      adminId: admin._id.toString(),
+      tenantId: admin.tenantId.toString(),
+      role: admin.role,
+      authLevel: "PASSWORD",
+      domainAdminId: admin.role === "DOMAIN_ADMIN" ? admin._id.toString() : null,
+      expiresIn: `${authConfig.sessionRules.timeoutMinutes}m`,
     });
 
-    logger.info("Password verified, OTP generated", {
-      email,
-      adminId: admin._id,
+    res.cookie("jwt", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "Strict",
     });
-    res.json({
+
+    return res.json({
       success: true,
-      message: "Password verified. OTP sent to registered email.",
+      message: "Authentication successful.",
       data: {
-        requiresMFA: true,
-        sessionToken,
+        token,
+        admin: {
+          id: admin._id,
+          name: admin.name,
+          email: admin.email,
+          tenantId: admin.tenantId,
+          role: admin.role,
+        },
       },
     });
   } catch (err) {
@@ -222,7 +328,7 @@ router.post("/verify-mfa", async (req, res) => {
 
   try {
     const { otp, sessionToken } = req.body;
-    const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
+    const decoded = verifyAdminMfaSessionToken(sessionToken);
 
     if (decoded.email !== email) {
       logger.warn("MFA failed: Session email mismatch", {
@@ -232,23 +338,33 @@ router.post("/verify-mfa", async (req, res) => {
       return res.json({ success: false, message: "Invalid session" });
     }
 
-    const admin = await Admin.findOne({ email });
+    const admin = await Admin.findById(decoded.adminId);
 
-    if (!admin || admin.otp !== otp || admin.otpExpiry < new Date()) {
+    if (
+      !admin ||
+      String(admin.tenantId) !== String(decoded.tenantId) ||
+      admin.email !== decoded.email ||
+      admin.otp !== otp ||
+      admin.otpExpiry < new Date()
+    ) {
       logger.warn("MFA failed: Invalid or expired OTP", { email });
       return res.json({ success: false, message: "Invalid OTP" });
     }
 
-    const token = jwt.sign(
-      {
-        adminId: admin._id,
-        domainAdminId: admin.role === "DOMAIN_ADMIN" ? admin._id : null,
-        tenantId: admin.tenantId,
-        role: admin.role,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "24h" },
-    );
+    const authConfig = await resolveAuthConfig(admin.tenantId, admin.domainId ?? null);
+    const token = issueAdminToken({
+      adminId: admin._id.toString(),
+      tenantId: admin.tenantId.toString(),
+      role: admin.role,
+      authLevel: "MFA",
+      domainAdminId: admin.role === "DOMAIN_ADMIN" ? admin._id.toString() : null,
+      expiresIn: `${authConfig.sessionRules.timeoutMinutes}m`,
+    });
+
+    admin.otp = null;
+    admin.otpExpiry = null;
+    admin.lastActivityAt = new Date();
+    await admin.save();
 
     res.cookie("jwt", token, {
       httpOnly: true,
@@ -265,6 +381,7 @@ router.post("/verify-mfa", async (req, res) => {
       success: true,
       message: "MFA verified. Welcome back.",
       data: {
+        token,
         admin: {
           id: admin._id,
           name: admin.name,
@@ -309,12 +426,16 @@ router.post("/resend-otp", async (req, res) => {
 
   try {
     const { sessionToken } = req.body;
-    const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
+    const decoded = verifyAdminMfaSessionToken(sessionToken);
     const email = decoded.email;
 
-    const admin = await Admin.findOne({ email });
+    const admin = await Admin.findById(decoded.adminId);
 
-    if (!admin) {
+    if (
+      !admin ||
+      String(admin.tenantId) !== String(decoded.tenantId) ||
+      admin.email !== decoded.email
+    ) {
       logger.warn("OTP resend failed: Invalid session or user not found", {
         email,
       });
@@ -343,26 +464,15 @@ router.post("/resend-otp", async (req, res) => {
 });
 
 // Get current session (me)
-router.get("/me", async (req, res) => {
+router.get("/me", requireAuth, enforceAuthPolicy, async (req, res) => {
   logger.info("Validating current session (/me endpoint)");
 
   try {
-    const token = req.cookies.jwt;
-
-    if (!token) {
-      logger.warn("Session validation failed: No token provided");
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const admin = await Admin.findById(decoded.adminId);
+    const admin = await Admin.findById(req.user.adminId);
 
     if (!admin) {
       logger.warn("Session validation failed: Admin not found", {
-        adminId: decoded.adminId,
+        adminId: req.user.adminId,
       });
       return res.status(401).json({
         success: false,

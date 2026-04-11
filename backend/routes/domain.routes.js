@@ -38,7 +38,8 @@ router.post(
   "/",
   verifyDomainAccess({ targetDomainBodyField: "parentDomainId" }),
   async (req, res) => {
-    const { tenantId, parentDomainId, domainName } = req.body;
+    const tenantId = req.user.tenantId;
+    const { parentDomainId, domainName } = req.body;
 
     logger.info("Create domain request received", {
       userId: req.user?.adminId,
@@ -49,17 +50,6 @@ router.post(
     });
 
     try {
-      if (!isSameTenant(req.user.tenantId, tenantId)) {
-        logger.warn("Create domain blocked: tenant mismatch", {
-          userTenantId: req.user?.tenantId,
-          requestTenantId: tenantId,
-        });
-        return res.status(403).json({
-          success: false,
-          message: "Tenant mismatch"
-        });
-      }
-
   if (req.body.parentDomainId) {
     if (!isValidObjectId(req.body.parentDomainId)) {
       return res.status(400).json({
@@ -103,7 +93,15 @@ router.post(
         });
       }
 
-      const domain = await Domain.create(req.body);
+      const domainPayload = {
+        tenantId: req.user.tenantId,
+        domainName: req.body.domainName,
+        parentDomainId: req.body.parentDomainId ?? null,
+        domainAdminId: req.body.domainAdminId ?? null,
+        metadata: req.body.metadata,
+      };
+
+      const domain = await Domain.create(domainPayload);
 
       logger.info("Domain created successfully", {
         domainId: domain._id,
@@ -137,7 +135,7 @@ router.get(
       });
     }
 
-    const { tenantId } = req.params;
+    const tenantId = req.user.tenantId;
 
     logger.info("Fetch domain tree request received", {
       tenantId,
@@ -149,12 +147,12 @@ router.get(
     try {
       // Retrieves a flat list of all domains; frontend handles recursive tree building
       // Note: The getDomainTree util was removed in favor of a standard flat query
-      let query = { tenantId };
+      let query = { tenantId: req.user.tenantId };
 
       // For DOMAIN_ADMIN users, include assigned roots and all descendant domains.
       if (req.domainAccess?.scope === "domain" && req.domainAccess.rootDomainIds.length > 0) {
         const accessibleDomainIds = await domainAccessService.listAccessibleDomainIds({
-          tenantId,
+          tenantId: req.user.tenantId,
           rootDomainIds: req.domainAccess.rootDomainIds,
         });
 
@@ -306,7 +304,16 @@ router.put(
 
       const updated = await Domain.findByIdAndUpdate(
         domainId,
-        req.body,
+        {
+          ...(typeof req.body.domainName === "string" ? { domainName: req.body.domainName } : {}),
+          ...(Object.prototype.hasOwnProperty.call(req.body, "parentDomainId")
+            ? { parentDomainId: req.body.parentDomainId ?? null }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(req.body, "domainAdminId")
+            ? { domainAdminId: req.body.domainAdminId ?? null }
+            : {}),
+          ...(req.body.metadata ? { metadata: req.body.metadata } : {}),
+        },
         { new: true }
       );
 
@@ -383,7 +390,10 @@ router.delete(
         });
       }
 
-      const children = await Domain.find({ parentDomainId: domainId });
+      const children = await Domain.find({
+        tenantId: req.user.tenantId,
+        parentDomainId: domainId,
+      });
 
       // Restrict deletion if active child domains exist
       if (children.length > 0) {

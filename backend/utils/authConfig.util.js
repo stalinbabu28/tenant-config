@@ -22,6 +22,7 @@ export const DEFAULT_AUTH_CONFIG = {
     maxLoginAttempts: 5,
     lockoutDurationMinutes: 15,
   },
+  allowedRoles: ["TENANT_ADMIN", "DOMAIN_ADMIN"],
 };
 
 export const resolveAuthConfig = async (tenantId, domainId) => {
@@ -63,4 +64,5 @@ export const mapAuthConfig = (config) => ({
   sessionTimeoutMinutes: config.sessionRules.timeoutMinutes,
   maxLoginAttempts: config.sessionRules.maxLoginAttempts,
   lockoutDurationMinutes: config.sessionRules.lockoutDurationMinutes,
+  allowedRoles: config.allowedRoles ?? [],
 });
