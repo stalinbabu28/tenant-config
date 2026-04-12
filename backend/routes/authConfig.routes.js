@@ -269,6 +269,185 @@ router.put("/:tenantId", async (req, res) => {
   }
 });
 
+// Cascade a domain auth config to descendants that do not have explicit overrides
+router.post("/:tenantId/cascade", async (req, res) => {
+  const { tenantId: requestedTenant } = req.params;
+  const { domainId: rawDomainId } = req.body || {};
+  const userTenant = req.user?.tenantId;
+  const userRole = req.user?.role;
+  const userId = req.user?.id;
+
+  logger.info("Initiating domain auth config cascade", {
+    requestedTenant,
+    rawDomainId,
+    userId,
+  });
+
+  try {
+    if (!isValidObjectId(requestedTenant)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid tenantId format",
+      });
+    }
+
+    if (!isSameTenant(userTenant, requestedTenant)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden - Tenant mismatch",
+      });
+    }
+
+    if (userRole !== "TENANT_ADMIN" && userRole !== "DOMAIN_ADMIN") {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden - Admin access required",
+      });
+    }
+
+    if (!rawDomainId) {
+      return res.status(400).json({
+        success: false,
+        message: "domainId is required",
+      });
+    }
+
+    let sourceDomainId = null;
+    try {
+      sourceDomainId = await resolveScopedDomainId({
+        requestedTenant,
+        rawDomainId,
+      });
+    } catch (scopeError) {
+      if (scopeError.message === "INVALID_DOMAIN_ID") {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid domainId format",
+        });
+      }
+
+      if (scopeError.message === "DOMAIN_NOT_FOUND") {
+        return res.status(404).json({
+          success: false,
+          message: "Domain not found for this tenant",
+        });
+      }
+
+      throw scopeError;
+    }
+
+    const tenantId = toObjectId(requestedTenant);
+
+    const sourceConfig = await DomainAuthConfig.findOne({
+      tenantId,
+      domainId: sourceDomainId,
+    });
+
+    if (!sourceConfig) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "No explicit domain auth config found on the selected domain. Save a domain-specific config first.",
+      });
+    }
+
+    const descendantsAggregation = await Domain.aggregate([
+      {
+        $match: {
+          _id: sourceDomainId,
+          tenantId,
+        },
+      },
+      {
+        $graphLookup: {
+          from: "domains",
+          startWith: "$_id",
+          connectFromField: "_id",
+          connectToField: "parentDomainId",
+          restrictSearchWithMatch: { tenantId },
+          as: "descendants",
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          descendantIds: "$descendants._id",
+        },
+      },
+    ]);
+
+    const descendantIds = (descendantsAggregation[0]?.descendantIds || []).filter(
+      (id) => String(id) !== String(sourceDomainId),
+    );
+
+    if (!descendantIds.length) {
+      return res.json({
+        success: true,
+        message: "No child domains found to cascade config.",
+        data: {
+          sourceDomainId: sourceDomainId.toString(),
+          scannedChildren: 0,
+          skippedExisting: 0,
+          cascaded: 0,
+        },
+      });
+    }
+
+    const existingChildConfigs = await DomainAuthConfig.find({
+      tenantId,
+      domainId: { $in: descendantIds },
+    }).select("domainId");
+
+    const existingDomainSet = new Set(
+      existingChildConfigs.map((config) => String(config.domainId)),
+    );
+
+    const cascadeTargets = descendantIds.filter(
+      (id) => !existingDomainSet.has(String(id)),
+    );
+
+    const sourceObject = sourceConfig.toObject();
+    const cascadePayloadBase = {
+      loginMethods: sourceObject.loginMethods,
+      passwordPolicy: sourceObject.passwordPolicy,
+      mfa: sourceObject.mfa,
+      sessionRules: sourceObject.sessionRules,
+    };
+
+    if (cascadeTargets.length) {
+      await DomainAuthConfig.insertMany(
+        cascadeTargets.map((childDomainId) => ({
+          tenantId,
+          domainId: childDomainId,
+          ...cascadePayloadBase,
+        })),
+        { ordered: false },
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: "Domain auth config cascade completed.",
+      data: {
+        sourceDomainId: sourceDomainId.toString(),
+        scannedChildren: descendantIds.length,
+        skippedExisting: existingDomainSet.size,
+        cascaded: cascadeTargets.length,
+      },
+    });
+  } catch (err) {
+    logger.error("Failed to cascade domain auth config", {
+      requestedTenant,
+      rawDomainId,
+      error: err.message,
+    });
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
 // Validate config payload
 router.post("/validate", async (req, res) => {
   logger.info("Initiating payload validation");
