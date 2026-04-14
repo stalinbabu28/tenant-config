@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import nodemailer from "nodemailer";
-import crypto from "crypto";
+import crypto from "node:crypto";
 import Admin from "../models/Admin.js";
 import dotenv from "dotenv";
 dotenv.config();
@@ -41,6 +41,9 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASS,
   },
 });
+
+const normalizeEmail = (value) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
 
 // Generate a secure, random 6-digit OTP
 const generateOTP = () => crypto.randomInt(100000, 999999).toString();
@@ -172,11 +175,19 @@ router.post("/signup", async (req, res) => {
 // Login
 router.post("/login", async (req, res) => {
   const { email } = req.body;
-  logger.info("Login attempt", { email });
+  const normalizedEmail = normalizeEmail(email);
+  logger.info("Login attempt", { email: normalizedEmail });
+
+  if (!normalizedEmail) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid email is required",
+    });
+  }
 
   try {
     const { password } = req.body;
-    const admin = await Admin.findOne({ email });
+    const admin = await Admin.findOne({ email: { $eq: normalizedEmail } });
 
     if (!admin) {
       logger.warn("Login failed: User not found", { email });
@@ -224,21 +235,29 @@ router.post("/login", async (req, res) => {
 // Verify MFA
 router.post("/verify-mfa", async (req, res) => {
   const { email } = req.body;
-  logger.info("MFA verification attempt", { email });
+  const normalizedEmail = normalizeEmail(email);
+  logger.info("MFA verification attempt", { email: normalizedEmail });
+
+  if (!normalizedEmail) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid email is required",
+    });
+  }
 
   try {
     const { otp, sessionToken } = req.body;
     const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
 
-    if (decoded.email !== email) {
+    if (String(decoded.email).trim().toLowerCase() !== normalizedEmail) {
       logger.warn("MFA failed: Session email mismatch", {
-        providedEmail: email,
+        providedEmail: normalizedEmail,
         tokenEmail: decoded.email,
       });
       return res.json({ success: false, message: "Invalid session" });
     }
 
-    const admin = await Admin.findOne({ email });
+    const admin = await Admin.findOne({ email: { $eq: normalizedEmail } });
 
     if (!admin || admin.otp !== otp || admin.otpExpiry < new Date()) {
       logger.warn("MFA failed: Invalid or expired OTP", { email });
@@ -318,9 +337,16 @@ router.post("/resend-otp", async (req, res) => {
   try {
     const { sessionToken } = req.body;
     const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
-    const email = decoded.email;
+    const email = normalizeEmail(decoded.email);
 
-    const admin = await Admin.findOne({ email });
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid session email",
+      });
+    }
+
+    const admin = await Admin.findOne({ email: { $eq: email } });
 
     if (!admin) {
       logger.warn("OTP resend failed: Invalid session or user not found", {

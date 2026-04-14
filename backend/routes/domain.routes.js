@@ -56,19 +56,21 @@ router.post(
         });
         return res.status(403).json({
           success: false,
-          message: "Tenant mismatch"
+          message: "Tenant mismatch",
         });
       }
 
-  if (req.body.parentDomainId) {
-    if (!isValidObjectId(req.body.parentDomainId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid parentDomainId format"
-      });
-    }
+      if (req.body.parentDomainId) {
+        if (!isValidObjectId(req.body.parentDomainId)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid parentDomainId format",
+          });
+        }
 
-    const parent = await Domain.findById(req.body.parentDomainId).select("tenantId");
+        const parent = await Domain.findById(req.body.parentDomainId).select(
+          "tenantId",
+        );
 
         if (!parent) {
           logger.warn("Create domain blocked: parent not found", {
@@ -77,33 +79,48 @@ router.post(
           });
           return res.status(404).json({
             success: false,
-            message: "Parent domain not found"
+            message: "Parent domain not found",
           });
         }
 
         if (!isSameTenant(parent.tenantId, req.user.tenantId)) {
-          logger.warn("Create domain blocked: parent belongs to another tenant", {
-            parentDomainId,
-            parentTenantId: parent.tenantId,
-            userTenantId: req.user?.tenantId,
-          });
+          logger.warn(
+            "Create domain blocked: parent belongs to another tenant",
+            {
+              parentDomainId,
+              parentTenantId: parent.tenantId,
+              userTenantId: req.user?.tenantId,
+            },
+          );
           return res.status(403).json({
             success: false,
-            message: "Parent domain belongs to another tenant"
+            message: "Parent domain belongs to another tenant",
           });
         }
       } else if (req.user.role === "DOMAIN_ADMIN") {
-        logger.warn("Create domain blocked: domain admin attempted root creation", {
-          userId: req.user?.adminId,
-          tenantId,
-        });
+        logger.warn(
+          "Create domain blocked: domain admin attempted root creation",
+          {
+            userId: req.user?.adminId,
+            tenantId,
+          },
+        );
         return res.status(403).json({
           success: false,
-          message: "Domain admins can only create child domains within their assigned subtree"
+          message:
+            "Domain admins can only create child domains within their assigned subtree",
         });
       }
 
-      const domain = await Domain.create(req.body);
+      const domainPayload = {
+        tenantId: new mongoose.Types.ObjectId(tenantId),
+        domainName: String(domainName).trim(),
+        parentDomainId: req.body.parentDomainId
+          ? new mongoose.Types.ObjectId(req.body.parentDomainId)
+          : null,
+      };
+
+      const domain = await Domain.create(domainPayload);
 
       logger.info("Domain created successfully", {
         domainId: domain._id,
@@ -123,7 +140,8 @@ router.post(
         message: error.message,
       });
     }
-  });
+  },
+);
 
 // 1. FETCH DOMAIN TREE (Flat List)
 router.get(
@@ -133,7 +151,7 @@ router.get(
     if (!isValidObjectId(req.params.tenantId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid tenantId format"
+        message: "Invalid tenantId format",
       });
     }
 
@@ -152,11 +170,15 @@ router.get(
       let query = { tenantId };
 
       // For DOMAIN_ADMIN users, include assigned roots and all descendant domains.
-      if (req.domainAccess?.scope === "domain" && req.domainAccess.rootDomainIds.length > 0) {
-        const accessibleDomainIds = await domainAccessService.listAccessibleDomainIds({
-          tenantId,
-          rootDomainIds: req.domainAccess.rootDomainIds,
-        });
+      if (
+        req.domainAccess?.scope === "domain" &&
+        req.domainAccess.rootDomainIds.length > 0
+      ) {
+        const accessibleDomainIds =
+          await domainAccessService.listAccessibleDomainIds({
+            tenantId,
+            rootDomainIds: req.domainAccess.rootDomainIds,
+          });
 
         query._id = { $in: accessibleDomainIds };
       }
@@ -180,7 +202,7 @@ router.get(
         message: error.message,
       });
     }
-  }
+  },
 );
 
 // 3. UPDATE DOMAIN NODE (re-parent)
@@ -188,12 +210,12 @@ router.put(
   "/:id",
   verifyDomainAccess({ targetDomainParam: "id" }),
   async (req, res) => {
-  if (!isValidObjectId(req.params.id)) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid domain id format"
-    });
-  }
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid domain id format",
+      });
+    }
 
     const { parentDomainId } = req.body;
     const domainId = req.params.id;
@@ -212,7 +234,7 @@ router.put(
         logger.warn("Update domain blocked: domain not found", { domainId });
         return res.status(404).json({
           success: false,
-          message: "Domain node not found."
+          message: "Domain node not found.",
         });
       }
 
@@ -224,17 +246,17 @@ router.put(
         });
         return res.status(403).json({
           success: false,
-          message: "Forbidden"
+          message: "Forbidden",
         });
       }
 
       if (parentDomainId) {
-    if (!isValidObjectId(parentDomainId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid parentDomainId format"
-      });
-    }
+        if (!isValidObjectId(parentDomainId)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid parentDomainId format",
+          });
+        }
 
         const parent = await Domain.findById(parentDomainId).select("tenantId");
 
@@ -245,29 +267,34 @@ router.put(
           });
           return res.status(404).json({
             success: false,
-            message: "Domain node not found."
+            message: "Domain node not found.",
           });
         }
 
         if (!isSameTenant(parent.tenantId, req.user.tenantId)) {
-          logger.warn("Update domain blocked: parent belongs to another tenant", {
-            domainId,
-            parentDomainId,
-            parentTenantId: parent.tenantId,
-            userTenantId: req.user?.tenantId,
-          });
+          logger.warn(
+            "Update domain blocked: parent belongs to another tenant",
+            {
+              domainId,
+              parentDomainId,
+              parentTenantId: parent.tenantId,
+              userTenantId: req.user?.tenantId,
+            },
+          );
           return res.status(403).json({
             success: false,
-            message: "Parent domain belongs to another tenant"
+            message: "Parent domain belongs to another tenant",
           });
         }
 
         if (req.user.role === "DOMAIN_ADMIN") {
-          const hasParentAccess = await domainAccessService.isDomainWithinScope({
-            tenantId: req.user.tenantId,
-            targetDomainId: parentDomainId,
-            rootDomainIds: req.domainAccess.rootDomainIds
-          });
+          const hasParentAccess = await domainAccessService.isDomainWithinScope(
+            {
+              tenantId: req.user.tenantId,
+              targetDomainId: parentDomainId,
+              rootDomainIds: req.domainAccess.rootDomainIds,
+            },
+          );
 
           if (!hasParentAccess) {
             logger.warn("Update domain blocked: parent out of scope", {
@@ -277,18 +304,21 @@ router.put(
             });
             return res.status(403).json({
               success: false,
-              message: "Parent domain is outside your assigned scope"
+              message: "Parent domain is outside your assigned scope",
             });
           }
         }
       } else if (req.user.role === "DOMAIN_ADMIN") {
-        logger.warn("Update domain blocked: domain admin attempted move to root", {
-          domainId,
-          userId: req.user?.adminId,
-        });
+        logger.warn(
+          "Update domain blocked: domain admin attempted move to root",
+          {
+            domainId,
+            userId: req.user?.adminId,
+          },
+        );
         return res.status(403).json({
           success: false,
-          message: "Domain admins cannot move domains to the tenant root"
+          message: "Domain admins cannot move domains to the tenant root",
         });
       }
 
@@ -300,15 +330,14 @@ router.put(
         });
         return res.status(409).json({
           success: false,
-          message: "Circular dependency detected. Cannot reparent to a child node."
+          message:
+            "Circular dependency detected. Cannot reparent to a child node.",
         });
       }
 
-      const updated = await Domain.findByIdAndUpdate(
-        domainId,
-        req.body,
-        { new: true }
-      );
+      const updated = await Domain.findByIdAndUpdate(domainId, req.body, {
+        new: true,
+      });
 
       logger.info("Domain updated successfully", {
         domainId,
@@ -327,7 +356,8 @@ router.put(
         message: error.message,
       });
     }
-  });
+  },
+);
 
 // 4. DELETE DOMAIN NODE
 router.delete(
@@ -337,7 +367,7 @@ router.delete(
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid domain id format"
+        message: "Invalid domain id format",
       });
     }
 
@@ -357,7 +387,7 @@ router.delete(
         });
         return res.status(403).json({
           success: false,
-          message: "Domain admins cannot delete domains"
+          message: "Domain admins cannot delete domains",
         });
       }
 
@@ -367,7 +397,7 @@ router.delete(
         logger.warn("Delete domain blocked: domain not found", { domainId });
         return res.status(404).json({
           success: false,
-          message: "Domain node not found."
+          message: "Domain node not found.",
         });
       }
 
@@ -379,7 +409,7 @@ router.delete(
         });
         return res.status(403).json({
           success: false,
-          message: "Forbidden"
+          message: "Forbidden",
         });
       }
 
@@ -393,14 +423,16 @@ router.delete(
         });
         return res.status(409).json({
           success: false,
-          message: "Cannot delete a domain that has active child domains."
+          message: "Cannot delete a domain that has active child domains.",
         });
       }
 
       await Domain.findByIdAndDelete(domainId);
 
       logger.info("Domain deleted successfully", { domainId });
-      res.status(200).json({ success: true, message: "Domain successfully deleted." });
+      res
+        .status(200)
+        .json({ success: true, message: "Domain successfully deleted." });
     } catch (error) {
       logger.error("Delete domain failed", {
         domainId,
@@ -411,7 +443,7 @@ router.delete(
         message: error.message,
       });
     }
-  }
+  },
 );
 
 export default router;

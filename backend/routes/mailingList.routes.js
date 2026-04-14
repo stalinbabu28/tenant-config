@@ -31,24 +31,55 @@ router.get("/:tenantId", async (req, res) => {
 // Endpoint: POST /api/mailing-lists
 router.post("/", async (req, res) => {
   try {
-    // Validate that the linked domain ID is a valid MongoDB ObjectId
-    if (!mongoose.Types.ObjectId.isValid(req.body.domainLinkedId)) {
+    const { tenantId, listName, domainLinkedId, dynamicRule, isActive } =
+      req.body;
+
+    if (
+      !tenantId ||
+      !listName ||
+      !domainLinkedId ||
+      !dynamicRule ||
+      typeof dynamicRule.action !== "string" ||
+      typeof dynamicRule.includeChildren !== "boolean"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "tenantId, listName, domainLinkedId, and valid dynamicRule are required.",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(tenantId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid Tenant ID format." });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(domainLinkedId)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid Linked Domain ID format." });
     }
 
-    // Creates a new dynamic mailing list linked to a specific domain.
-    const newList = await MailingList.create(req.body);
+    const listPayload = {
+      tenantId: new mongoose.Types.ObjectId(tenantId),
+      listName: String(listName).trim(),
+      domainLinkedId: new mongoose.Types.ObjectId(domainLinkedId),
+      dynamicRule: {
+        action: String(dynamicRule.action),
+        includeChildren: dynamicRule.includeChildren,
+      },
+      isActive: typeof isActive === "boolean" ? isActive : true,
+    };
+
+    const newList = await MailingList.create(listPayload);
     res.status(201).json(newList);
   } catch (error) {
-    res
-      .status(400)
-      .json({
-        success: false,
-        message: "Failed to create mailing list",
-        error: error.message,
-      });
+    res.status(400).json({
+      success: false,
+      message: "Failed to create mailing list",
+      error: error.message,
+    });
   }
 });
 
@@ -96,13 +127,11 @@ router.put("/:id", async (req, res) => {
 
     res.status(200).json(updatedList);
   } catch (error) {
-    res
-      .status(400)
-      .json({
-        success: false,
-        message: "Failed to update mailing list",
-        error: error.message,
-      });
+    res.status(400).json({
+      success: false,
+      message: "Failed to update mailing list",
+      error: error.message,
+    });
   }
 });
 

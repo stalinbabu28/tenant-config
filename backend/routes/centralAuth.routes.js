@@ -30,6 +30,12 @@ const parseGoogleState = (value) => {
   }
 };
 
+const normalizeEmail = (value) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
+
+const normalizeString = (value) =>
+  typeof value === "string" ? value.trim() : "";
+
 const buildRedirectUrl = (baseUrl, params = {}) => {
   const url = new URL(baseUrl, "http://localhost");
   Object.entries(params).forEach(([key, value]) => {
@@ -86,10 +92,16 @@ router.get("/config", async (req, res) => {
 router.post("/identify", async (req, res) => {
   try {
     const { tenantId, email, domainId } = req.body;
-    if (!tenantId || !email) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (
+      !tenantId ||
+      !normalizedEmail ||
+      !mongoose.Types.ObjectId.isValid(tenantId)
+    ) {
       return res.status(400).json({
         success: false,
-        message: "tenantId and email are required",
+        message: "tenantId and valid email are required",
       });
     }
 
@@ -97,7 +109,10 @@ router.post("/identify", async (req, res) => {
     const requestedDomainId = domainId
       ? new mongoose.Types.ObjectId(domainId)
       : null;
-    const user = await User.findOne({ email, tenantId: tenantObjectId });
+    const user = await User.findOne({
+      email: { $eq: normalizedEmail },
+      tenantId: tenantObjectId,
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -139,16 +154,24 @@ router.post("/identify", async (req, res) => {
 router.post("/signup", async (req, res) => {
   try {
     const { tenantId, name, email, password } = req.body;
-    if (!tenantId || !name || !email || !password) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (
+      !tenantId ||
+      !name ||
+      !normalizedEmail ||
+      !password ||
+      !mongoose.Types.ObjectId.isValid(tenantId)
+    ) {
       return res.status(400).json({
         success: false,
-        message: "tenantId, name, email, and password are required",
+        message: "tenantId, name, valid email, and password are required",
       });
     }
 
     const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
     const existingUser = await User.findOne({
-      email,
+      email: { $eq: normalizedEmail },
       tenantId: tenantObjectId,
     });
     if (existingUser) {
@@ -218,10 +241,16 @@ router.post("/signup", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { tenantId, email, password, domainId } = req.body;
-    if (!tenantId || !email) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (
+      !tenantId ||
+      !normalizedEmail ||
+      !mongoose.Types.ObjectId.isValid(tenantId)
+    ) {
       return res.status(400).json({
         success: false,
-        message: "tenantId and email are required",
+        message: "tenantId and valid email are required",
       });
     }
 
@@ -229,7 +258,10 @@ router.post("/login", async (req, res) => {
     const requestedDomainId = domainId
       ? new mongoose.Types.ObjectId(domainId)
       : null;
-    const user = await User.findOne({ email, tenantId: tenantObjectId });
+    const user = await User.findOne({
+      email: { $eq: normalizedEmail },
+      tenantId: tenantObjectId,
+    });
 
     if (!user) {
       return res
@@ -490,7 +522,9 @@ router.post("/login", async (req, res) => {
 router.post("/verify-otp", async (req, res) => {
   try {
     const { email, sessionToken, otp } = req.body;
-    if (!email || !sessionToken || !otp) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || !sessionToken || !otp) {
       return res.status(400).json({
         success: false,
         message: "email, sessionToken, and otp are required",
@@ -498,13 +532,13 @@ router.post("/verify-otp", async (req, res) => {
     }
 
     const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
-    if (decoded.email !== email) {
+    if (String(decoded.email).trim().toLowerCase() !== normalizedEmail) {
       return res
         .status(401)
         .json({ success: false, message: "Invalid session" });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: { $eq: normalizedEmail } });
     if (!user || user.otp !== otp || user.otpExpiry < new Date()) {
       return res
         .status(401)
@@ -549,7 +583,9 @@ router.post("/verify-otp", async (req, res) => {
 router.post("/verify-totp", async (req, res) => {
   try {
     const { email, sessionToken, totp } = req.body;
-    if (!email || !sessionToken || !totp) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || !sessionToken || !totp) {
       return res.status(400).json({
         success: false,
         message: "email, sessionToken, and totp are required",
@@ -557,13 +593,13 @@ router.post("/verify-totp", async (req, res) => {
     }
 
     const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
-    if (decoded.email !== email) {
+    if (String(decoded.email).trim().toLowerCase() !== normalizedEmail) {
       return res
         .status(401)
         .json({ success: false, message: "Invalid session" });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: { $eq: normalizedEmail } });
     if (!user || !user.totpSecret) {
       return res.status(401).json({
         success: false,
@@ -679,7 +715,7 @@ router.get("/oauth/google/callback", async (req, res) => {
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    const email = payload?.email;
+    const email = normalizeEmail(payload?.email);
 
     if (!email) {
       return res
@@ -688,7 +724,10 @@ router.get("/oauth/google/callback", async (req, res) => {
     }
 
     const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
-    const user = await User.findOne({ email, tenantId: tenantObjectId });
+    const user = await User.findOne({
+      email: { $eq: email },
+      tenantId: tenantObjectId,
+    });
     if (!user) {
       return res
         .status(403)
