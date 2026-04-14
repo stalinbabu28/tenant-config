@@ -6,52 +6,10 @@ import nodemailer from "nodemailer";
 import crypto from "node:crypto";
 import Admin from "../models/Admin.js";
 import dotenv from "dotenv";
+import { createLogger } from "../utils/logger.util.js";
 dotenv.config();
 const router = express.Router();
-
-// ── Lightweight Structured Logger ──────────────────────────────────────────────
-const sanitizeMeta = (meta = {}) => {
-  const allowedKeys = new Set(["count", "error"]);
-  return Object.fromEntries(
-    Object.entries(meta).filter(([key]) => allowedKeys.has(key)),
-  );
-};
-
-const logger = {
-  info: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "INFO",
-      component: "Auth",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.log(JSON.stringify(payload));
-  },
-  warn: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "WARN",
-      component: "Auth",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.warn(JSON.stringify(payload));
-  },
-  error: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "ERROR",
-      component: "Auth",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.error(JSON.stringify(payload));
-  },
-};
+const logger = createLogger("Auth");
 
 // ── Email Setup & Helpers ──────────────────────────────────────────────
 const transporter = nodemailer.createTransport({

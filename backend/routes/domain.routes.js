@@ -4,6 +4,7 @@ import Domain from "../models/Domain.js";
 import { isCycle } from "../utils/cycleCheck.util.js";
 import { verifyDomainAccess } from "../middleware/domainAccess.middleware.js";
 import { createDomainAccessService } from "../services/domainAccess.service.js";
+import { createLogger } from "../utils/logger.util.js";
 
 const router = express.Router();
 
@@ -11,49 +12,7 @@ const isSameTenant = (a, b) => String(a) === String(b);
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const domainAccessService = createDomainAccessService();
 
-// ── Lightweight Structured Logger ──────────────────────────────────────────────
-const sanitizeMeta = (meta = {}) => {
-  const allowedKeys = new Set(["count", "error", "role"]);
-  return Object.fromEntries(
-    Object.entries(meta).filter(([key]) => allowedKeys.has(key)),
-  );
-};
-
-const logger = {
-  info: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "INFO",
-      component: "Domain",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.log(JSON.stringify(payload));
-  },
-  warn: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "WARN",
-      component: "Domain",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.warn(JSON.stringify(payload));
-  },
-  error: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "ERROR",
-      component: "Domain",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.error(JSON.stringify(payload));
-  },
-};
+const logger = createLogger("Domain");
 
 const apiError = (status, message) => {
   const error = new Error(message);

@@ -7,6 +7,7 @@ import {
   mapAuthConfig,
   resolveAuthConfigWithSource,
 } from "../utils/authConfig.util.js";
+import { createLogger } from "../utils/logger.util.js";
 const router = express.Router();
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
@@ -152,49 +153,7 @@ const buildValidationErrors = (payload) => {
   return errors;
 };
 
-// ── Lightweight Structured Logger ──────────────────────────────────────────────
-const sanitizeMeta = (meta = {}) => {
-  const allowedKeys = new Set(["count", "error"]);
-  return Object.fromEntries(
-    Object.entries(meta).filter(([key]) => allowedKeys.has(key)),
-  );
-};
-
-const logger = {
-  info: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "INFO",
-      component: "AuthConfig",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.log(JSON.stringify(payload));
-  },
-  warn: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "WARN",
-      component: "AuthConfig",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.warn(JSON.stringify(payload));
-  },
-  error: (msg, meta = {}) => {
-    const safeMeta = sanitizeMeta(meta);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      level: "ERROR",
-      component: "AuthConfig",
-      message: msg,
-      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
-    };
-    console.error(JSON.stringify(payload));
-  },
-};
+const logger = createLogger("AuthConfig");
 
 // Get auth config (auto-create if missing)
 router.get("/:tenantId", async (req, res) => {
