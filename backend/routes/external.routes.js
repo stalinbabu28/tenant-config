@@ -19,13 +19,12 @@ router.get(
 
       res.json({
         success: true,
-        data: config
+        data: config,
       });
-
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
     }
-  }
+  },
 );
 
 router.post(
@@ -52,7 +51,13 @@ router.post(
       }
 
       const tenantId = decoded.tenantId;
-      const tokenType = decoded.adminId ? "admin" : decoded.userId ? "user" : "unknown";
+      let tokenType = "unknown";
+
+      if (decoded.adminId) {
+        tokenType = "admin";
+      } else if (decoded.userId) {
+        tokenType = "user";
+      }
 
       if (tokenType === "unknown") {
         return res.status(401).json({

@@ -5,10 +5,10 @@ export const externalAuth = (requiredScope) => {
     try {
       const authHeader = req.headers.authorization;
 
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      if (!authHeader?.startsWith("Bearer ")) {
         return res.status(401).json({
           success: false,
-          message: "Missing token"
+          message: "Missing token",
         });
       }
 
@@ -20,18 +20,18 @@ export const externalAuth = (requiredScope) => {
       if (!decoded.scope.includes(requiredScope)) {
         return res.status(403).json({
           success: false,
-          message: "Insufficient scope"
+          message: "Insufficient scope",
         });
       }
 
       req.external = decoded;
 
       next();
-
     } catch (err) {
+      console.error(err);
       return res.status(401).json({
         success: false,
-        message: "Invalid or expired token"
+        message: "Invalid or expired token",
       });
     }
   };

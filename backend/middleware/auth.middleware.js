@@ -7,7 +7,7 @@ export const requireAuth = (req, res, next) => {
     // 1) Check Authorization header (Bearer token)
     const authHeader = req.headers.authorization;
 
-    if (authHeader && authHeader.startsWith("Bearer ")) {
+    if (authHeader?.startsWith("Bearer ")) {
       token = authHeader.split(" ")[1];
     }
 
@@ -19,7 +19,7 @@ export const requireAuth = (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized - No token"
+        message: "Unauthorized - No token",
       });
     }
 
@@ -32,11 +32,11 @@ export const requireAuth = (req, res, next) => {
     };
 
     next();
-
   } catch (err) {
+    console.error(err);
     return res.status(401).json({
       success: false,
-      message: "Unauthorized - Invalid token"
+      message: "Unauthorized - Invalid token",
     });
   }
 };

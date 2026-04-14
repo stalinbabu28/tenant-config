@@ -1,5 +1,3 @@
-const toComparableId = (value) => String(value);
-
 const createDefaultDomainRepository = () => ({
   async findById(domainId) {
     if (!domainId) {
@@ -16,7 +14,7 @@ const createDefaultDomainRepository = () => ({
     const { default: DomainModel } = await import("../models/Domain.js");
     return DomainModel.find({
       tenantId,
-      domainAdminId: adminId
+      domainAdminId: adminId,
     })
       .select("_id")
       .lean();
@@ -24,26 +22,31 @@ const createDefaultDomainRepository = () => ({
 
   async findTenantDomains(tenantId) {
     const { default: DomainModel } = await import("../models/Domain.js");
-    return DomainModel.find({ tenantId })
-      .select("_id parentDomainId")
-      .lean();
-  }
+    return DomainModel.find({ tenantId }).select("_id parentDomainId").lean();
+  },
 });
 
 export const createDomainAccessService = ({
-  domainRepository = createDefaultDomainRepository()
+  domainRepository = createDefaultDomainRepository(),
 } = {}) => {
   const getAdminRootDomainIds = async ({ tenantId, adminId }) => {
-    const domains = await domainRepository.findAdminRootDomains(tenantId, adminId);
+    const domains = await domainRepository.findAdminRootDomains(
+      tenantId,
+      adminId,
+    );
     return domains.map((domain) => domain._id);
   };
 
-  const isDomainWithinScope = async ({ tenantId, targetDomainId, rootDomainIds }) => {
+  const isDomainWithinScope = async ({
+    tenantId,
+    targetDomainId,
+    rootDomainIds,
+  }) => {
     if (!targetDomainId) {
       return false;
     }
 
-    const rootIdSet = new Set(rootDomainIds.map((rootId) => toComparableId(rootId)));
+    const rootIdSet = new Set(rootDomainIds.map((rootId) => String(rootId)));
     let currentDomainId = targetDomainId;
     const visited = new Set();
 
@@ -54,11 +57,11 @@ export const createDomainAccessService = ({
         return false;
       }
 
-      if (tenantId && toComparableId(domain.tenantId) !== toComparableId(tenantId)) {
+      if (tenantId && String(domain.tenantId) !== String(tenantId)) {
         return false;
       }
 
-      const comparableId = toComparableId(domain._id);
+      const comparableId = String(domain._id);
       if (rootIdSet.has(comparableId)) {
         return true;
       }
@@ -80,7 +83,7 @@ export const createDomainAccessService = ({
 
     for (const domain of tenantDomains) {
       const parentKey = domain.parentDomainId
-        ? toComparableId(domain.parentDomainId)
+        ? String(domain.parentDomainId)
         : null;
 
       if (!childrenByParentId.has(parentKey)) {
@@ -96,7 +99,7 @@ export const createDomainAccessService = ({
 
     while (queue.length) {
       const domainId = queue.shift();
-      const comparableId = toComparableId(domainId);
+      const comparableId = String(domainId);
 
       if (visited.has(comparableId)) {
         continue;
@@ -116,6 +119,6 @@ export const createDomainAccessService = ({
   return {
     getAdminRootDomainIds,
     isDomainWithinScope,
-    listAccessibleDomainIds
+    listAccessibleDomainIds,
   };
 };

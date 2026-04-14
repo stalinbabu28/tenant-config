@@ -4,7 +4,7 @@ dotenv.config();
 
 const uri = process.env.MONGO_URI || "mongodb://localhost:27017/tenant-config";
 
-const main = async () => {
+try {
   console.log("URI:", uri);
   await mongoose.connect(uri);
   console.log("DB:", mongoose.connection.db.databaseName);
@@ -30,9 +30,7 @@ const main = async () => {
     }
   }
   await mongoose.disconnect();
-};
-
-main().catch((err) => {
+} catch (err) {
   console.error(err);
   process.exit(1);
-});
+}

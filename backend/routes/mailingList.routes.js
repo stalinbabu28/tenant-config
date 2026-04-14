@@ -111,9 +111,49 @@ router.put("/:id", async (req, res) => {
       oldIncludeChildren !== newIncludeChildren;
 
     // Updates settings such as isActive or dynamicRule.
+    const updatePayload = {};
+    if (typeof req.body.listName === "string" && req.body.listName.trim()) {
+      updatePayload.listName = req.body.listName.trim();
+    }
+    if (
+      typeof req.body.domainLinkedId === "string" &&
+      mongoose.Types.ObjectId.isValid(req.body.domainLinkedId)
+    ) {
+      updatePayload.domainLinkedId = new mongoose.Types.ObjectId(
+        req.body.domainLinkedId,
+      );
+    }
+    if (typeof req.body.isActive === "boolean") {
+      updatePayload.isActive = req.body.isActive;
+    }
+    if (req.body.dynamicRule !== undefined) {
+      if (
+        typeof req.body.dynamicRule !== "object" ||
+        typeof req.body.dynamicRule.action !== "string" ||
+        typeof req.body.dynamicRule.includeChildren !== "boolean"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "dynamicRule must be an object with action and includeChildren fields.",
+        });
+      }
+      updatePayload.dynamicRule = {
+        action: String(req.body.dynamicRule.action),
+        includeChildren: req.body.dynamicRule.includeChildren,
+      };
+    }
+
+    if (!Object.keys(updatePayload).length) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields were provided for the mailing list update.",
+      });
+    }
+
     const updatedList = await MailingList.findByIdAndUpdate(
       req.params.id,
-      { $set: req.body },
+      updatePayload,
       { new: true, runValidators: true },
     );
 

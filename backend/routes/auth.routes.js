@@ -45,6 +45,24 @@ const transporter = nodemailer.createTransport({
 const normalizeEmail = (value) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
 
+const normalizeString = (value) =>
+  typeof value === "string" ? value.trim() : "";
+
+const findAdminByEmail = async (email) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+  return Admin.findOne({ email: { $eq: normalizedEmail } });
+};
+
+const issueOtpToAdmin = async (email, admin) => {
+  const otp = generateOTP();
+  admin.otp = otp;
+  admin.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+  await admin.save();
+  await sendOTPEmail(email, otp);
+  return otp;
+};
+
 // Generate a secure, random 6-digit OTP
 const generateOTP = () => crypto.randomInt(100000, 999999).toString();
 
@@ -136,16 +154,32 @@ router.post("/signup", async (req, res) => {
 
   try {
     const { name, password, domainId } = req.body;
-    const hashed = await bcrypt.hash(password, 10);
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedName = normalizeString(name);
 
+    if (
+      !normalizedName ||
+      !normalizedEmail ||
+      !password ||
+      !tenantId ||
+      !mongoose.Types.ObjectId.isValid(tenantId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "name, tenantId, valid email, and password are required for signup.",
+      });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
     const resolvedDomainId =
       domainId && mongoose.Types.ObjectId.isValid(domainId)
         ? new mongoose.Types.ObjectId(domainId)
         : null;
 
     const admin = await Admin.create({
-      name,
-      email,
+      name: normalizedName,
+      email: normalizedEmail,
       passwordHash: hashed,
       tenantId: new mongoose.Types.ObjectId(tenantId),
       domainId: resolvedDomainId,
@@ -154,12 +188,7 @@ router.post("/signup", async (req, res) => {
 
     logger.info("Admin account created successfully", {
       adminId: admin._id,
-      email,
-      tenantId,
-    });
-    logger.info("Admin account created successfully", {
-      adminId: admin._id,
-      email,
+      email: normalizedEmail,
       tenantId,
     });
     res.json({
@@ -187,10 +216,10 @@ router.post("/login", async (req, res) => {
 
   try {
     const { password } = req.body;
-    const admin = await Admin.findOne({ email: { $eq: normalizedEmail } });
+    const admin = await findAdminByEmail(normalizedEmail);
 
     if (!admin) {
-      logger.warn("Login failed: User not found", { email });
+      logger.warn("Login failed: User not found", { email: normalizedEmail });
       return res.json({ success: false, message: "Invalid credentials" });
     }
 
@@ -201,18 +230,15 @@ router.post("/login", async (req, res) => {
       return res.json({ success: false, message: "Invalid credentials" });
     }
 
-    // Generate secure OTP
-    const otp = generateOTP();
+    const sessionToken = jwt.sign(
+      { email: normalizedEmail },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "5m",
+      },
+    );
 
-    admin.otp = otp;
-    admin.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
-    await admin.save();
-
-    // Send the email
-    await sendOTPEmail(email, otp);
-    const sessionToken = jwt.sign({ email }, process.env.JWT_SECRET, {
-      expiresIn: "5m",
-    });
+    await issueOtpToAdmin(normalizedEmail, admin);
 
     logger.info("Password verified, OTP generated", {
       email,
@@ -257,7 +283,7 @@ router.post("/verify-mfa", async (req, res) => {
       return res.json({ success: false, message: "Invalid session" });
     }
 
-    const admin = await Admin.findOne({ email: { $eq: normalizedEmail } });
+    const admin = await findAdminByEmail(normalizedEmail);
 
     if (!admin || admin.otp !== otp || admin.otpExpiry < new Date()) {
       logger.warn("MFA failed: Invalid or expired OTP", { email });
@@ -346,7 +372,7 @@ router.post("/resend-otp", async (req, res) => {
       });
     }
 
-    const admin = await Admin.findOne({ email: { $eq: email } });
+    const admin = await findAdminByEmail(email);
 
     if (!admin) {
       logger.warn("OTP resend failed: Invalid session or user not found", {

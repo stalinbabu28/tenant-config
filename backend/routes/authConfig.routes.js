@@ -3,7 +3,10 @@ import AuthConfig from "../models/AuthConfig.js";
 import DomainAuthConfig from "../models/DomainAuthConfig.js";
 import Domain from "../models/Domain.js";
 import mongoose from "mongoose";
-import { mapAuthConfig, resolveAuthConfigWithSource } from "../utils/authConfig.util.js";
+import {
+  mapAuthConfig,
+  resolveAuthConfigWithSource,
+} from "../utils/authConfig.util.js";
 const router = express.Router();
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
@@ -56,6 +59,97 @@ const resolveScopedDomainId = async ({ requestedTenant, rawDomainId }) => {
   }
 
   return domain._id;
+};
+
+const validateRange = (value, min, max, errorMessage) => {
+  return value !== undefined &&
+    (typeof value !== "number" || value < min || value > max)
+    ? errorMessage
+    : null;
+};
+
+const hasSpecialCharacter = (value) => {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const specialCharacters = new Set(
+    Array.from("!@#$%^&*()_+-=[]{};':\"\\|,.<>/?"),
+  );
+  return Array.from(value).some((char) => specialCharacters.has(char));
+};
+
+const buildValidationErrors = (payload) => {
+  const errors = [];
+  const {
+    passwordEnabled = false,
+    ssoEnabled = false,
+    otpEnabled = false,
+    mfaEnabled = false,
+    passwordPolicy = {},
+    allowedRoles = [],
+    sessionTimeoutMinutes,
+    maxLoginAttempts,
+    lockoutDurationMinutes,
+  } = payload;
+
+  if (!passwordEnabled && !ssoEnabled && !otpEnabled) {
+    errors.push("At least one authentication method must be enabled.");
+  }
+
+  if (mfaEnabled && !passwordEnabled && !otpEnabled) {
+    errors.push(
+      "MFA requires either password or OTP to be enabled as a first factor.",
+    );
+  }
+
+  if (
+    ssoEnabled &&
+    (!Array.isArray(allowedRoles) || allowedRoles.length === 0)
+  ) {
+    errors.push("SSO is enabled but no roles are assigned to use it.");
+  }
+
+  const minLengthError = validateRange(
+    passwordPolicy.minLength,
+    4,
+    64,
+    "Password minimum length must be between 4 and 64.",
+  );
+  if (minLengthError) errors.push(minLengthError);
+
+  const expiryDaysError = validateRange(
+    passwordPolicy.expiryDays,
+    0,
+    365,
+    "Password expiry must be between 0 (never) and 365 days.",
+  );
+  if (expiryDaysError) errors.push(expiryDaysError);
+
+  const timeoutError = validateRange(
+    sessionTimeoutMinutes,
+    5,
+    1440,
+    "Session timeout must be between 5 and 1440 minutes.",
+  );
+  if (timeoutError) errors.push(timeoutError);
+
+  const maxLoginAttemptsError = validateRange(
+    maxLoginAttempts,
+    1,
+    20,
+    "Max login attempts must be between 1 and 20.",
+  );
+  if (maxLoginAttemptsError) errors.push(maxLoginAttemptsError);
+
+  const lockoutDurationError = validateRange(
+    lockoutDurationMinutes,
+    1,
+    1440,
+    "Lockout duration must be between 1 and 1440 minutes.",
+  );
+  if (lockoutDurationError) errors.push(lockoutDurationError);
+
+  return errors;
 };
 
 // ── Lightweight Structured Logger ──────────────────────────────────────────────
@@ -376,9 +470,9 @@ router.post("/:tenantId/cascade", async (req, res) => {
       },
     ]);
 
-    const descendantIds = (descendantsAggregation[0]?.descendantIds || []).filter(
-      (id) => String(id) !== String(sourceDomainId),
-    );
+    const descendantIds = (
+      descendantsAggregation[0]?.descendantIds || []
+    ).filter((id) => String(id) !== String(sourceDomainId));
 
     if (!descendantIds.length) {
       return res.json({
@@ -454,72 +548,8 @@ router.post("/validate", async (req, res) => {
 
   try {
     const payload = req.body || {};
-    const errors = [];
+    const errors = buildValidationErrors(payload);
 
-    const {
-      passwordEnabled = false,
-      ssoEnabled = false,
-      otpEnabled = false,
-      mfaEnabled = false,
-      passwordPolicy = {},
-      allowedRoles = [],
-      sessionTimeoutMinutes,
-      maxLoginAttempts,
-      lockoutDurationMinutes,
-    } = payload;
-
-    // 1) At least one auth method
-    if (!passwordEnabled && !ssoEnabled && !otpEnabled) {
-      errors.push("At least one authentication method must be enabled.");
-    }
-
-    // 2) MFA dependency
-    if (mfaEnabled && !passwordEnabled && !otpEnabled) {
-      errors.push(
-        "MFA requires either password or OTP to be enabled as a first factor.",
-      );
-    }
-
-    // 3) SSO rules
-    if (ssoEnabled && (!allowedRoles || allowedRoles.length === 0)) {
-      errors.push("SSO is enabled but no roles are assigned to use it.");
-    }
-
-    // 4) Password policy
-    if (passwordPolicy.minLength !== undefined) {
-      if (passwordPolicy.minLength < 4 || passwordPolicy.minLength > 64) {
-        errors.push("Password minimum length must be between 4 and 64.");
-      }
-    }
-
-    if (passwordPolicy.expiryDays !== undefined) {
-      if (passwordPolicy.expiryDays < 0 || passwordPolicy.expiryDays > 365) {
-        errors.push("Password expiry must be between 0 (never) and 365 days.");
-      }
-    }
-
-    // 5) Session timeout
-    if (sessionTimeoutMinutes !== undefined) {
-      if (sessionTimeoutMinutes < 5 || sessionTimeoutMinutes > 1440) {
-        errors.push("Session timeout must be between 5 and 1440 minutes.");
-      }
-    }
-
-    // 6) Max login attempts
-    if (maxLoginAttempts !== undefined) {
-      if (maxLoginAttempts < 1 || maxLoginAttempts > 20) {
-        errors.push("Max login attempts must be between 1 and 20.");
-      }
-    }
-
-    // 7) Lockout duration
-    if (lockoutDurationMinutes !== undefined) {
-      if (lockoutDurationMinutes < 1 || lockoutDurationMinutes > 1440) {
-        errors.push("Lockout duration must be between 1 and 1440 minutes.");
-      }
-    }
-
-    // Final response
     if (errors.length > 0) {
       logger.warn("Payload validation failed", {
         errorCount: errors.length,

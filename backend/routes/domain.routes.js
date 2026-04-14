@@ -335,7 +335,27 @@ router.put(
         });
       }
 
-      const updated = await Domain.findByIdAndUpdate(domainId, req.body, {
+      const updatePayload = {};
+      if (
+        typeof req.body.domainName === "string" &&
+        req.body.domainName.trim()
+      ) {
+        updatePayload.domainName = req.body.domainName.trim();
+      }
+      if (req.body.parentDomainId !== undefined) {
+        updatePayload.parentDomainId = req.body.parentDomainId
+          ? new mongoose.Types.ObjectId(req.body.parentDomainId)
+          : null;
+      }
+
+      if (!Object.keys(updatePayload).length) {
+        return res.status(400).json({
+          success: false,
+          message: "No valid fields were provided for update.",
+        });
+      }
+
+      const updated = await Domain.findByIdAndUpdate(domainId, updatePayload, {
         new: true,
       });
 

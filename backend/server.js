@@ -4,7 +4,6 @@ import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.routes.js";
-import AuthConfig from "./models/AuthConfig.js";
 import authConfigRoutes from "./routes/authConfig.routes.js";
 import centralAuthRoutes from "./routes/centralAuth.routes.js";
 import { requireAuth } from "./middleware/auth.middleware.js";
@@ -41,7 +40,6 @@ app.get("/", (req, res) => {
 });
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI);
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {

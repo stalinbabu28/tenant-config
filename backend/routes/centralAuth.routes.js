@@ -36,6 +36,52 @@ const normalizeEmail = (value) =>
 const normalizeString = (value) =>
   typeof value === "string" ? value.trim() : "";
 
+const hasSpecialCharacter = (value) => {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const specialCharacters = new Set(
+    Array.from("!@#$%^&*()_+-=[]{};':\\\"\\|,.<>/?"),
+  );
+  return Array.from(value).some((char) => specialCharacters.has(char));
+};
+
+const isValidTenantId = (value) =>
+  typeof value === "string" && mongoose.Types.ObjectId.isValid(value);
+
+const toObjectId = (value) => new mongoose.Types.ObjectId(value);
+
+const findUserByEmailAndTenant = async (email, tenantId) =>
+  User.findOne({
+    email: { $eq: normalizeEmail(email) },
+    tenantId,
+  });
+
+const findUserByEmail = async (email) =>
+  User.findOne({ email: { $eq: normalizeEmail(email) } });
+
+const createSessionToken = (user, tenantId) =>
+  jwt.sign(
+    {
+      email: user.email,
+      tenantId,
+      domainId: user.domainId ?? null,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "5m" },
+  );
+
+const sendOtpToUser = async (user) => {
+  const otp = generateOTP();
+  user.otp = otp;
+  user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+  user.lastActivityAt = new Date();
+  await user.save();
+  await sendOTPEmail(user.email, otp);
+  return otp;
+};
+
 const buildRedirectUrl = (baseUrl, params = {}) => {
   const url = new URL(baseUrl, "http://localhost");
   Object.entries(params).forEach(([key, value]) => {
@@ -53,11 +99,11 @@ const generateOTP = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
 
 const isLockedOut = (entity) =>
-  !!entity.lockoutUntil && entity.lockoutUntil > new Date();
+  !!entity.lockoutUntil && entity.lockoutUntil.getTime() > Date.now();
 
 const lockoutRemainingMinutes = (entity) => {
   if (!entity.lockoutUntil) return 0;
-  return Math.ceil((entity.lockoutUntil - new Date()) / 60000);
+  return Math.ceil((entity.lockoutUntil.getTime() - Date.now()) / 60000);
 };
 
 router.get("/config", async (req, res) => {
@@ -209,10 +255,7 @@ router.post("/signup", async (req, res) => {
         message: "Password must contain at least one number.",
       });
     }
-    if (
-      passwordPolicy.requireSpecialChar &&
-      !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
-    ) {
+    if (passwordPolicy.requireSpecialChar && !hasSpecialCharacter(password)) {
       return res.status(400).json({
         success: false,
         message: "Password must contain at least one special character.",
@@ -221,8 +264,8 @@ router.post("/signup", async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     await User.create({
-      name,
-      email,
+      name: normalizeString(name),
+      email: normalizedEmail,
       passwordHash,
       tenantId: tenantObjectId,
       domainId: null,
@@ -243,25 +286,21 @@ router.post("/login", async (req, res) => {
     const { tenantId, email, password, domainId } = req.body;
     const normalizedEmail = normalizeEmail(email);
 
-    if (
-      !tenantId ||
-      !normalizedEmail ||
-      !mongoose.Types.ObjectId.isValid(tenantId)
-    ) {
+    if (!tenantId || !normalizedEmail || !isValidTenantId(tenantId)) {
       return res.status(400).json({
         success: false,
         message: "tenantId and valid email are required",
       });
     }
 
-    const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
-    const requestedDomainId = domainId
-      ? new mongoose.Types.ObjectId(domainId)
+    const tenantObjectId = toObjectId(tenantId);
+    const requestedDomainId = isValidTenantId(domainId)
+      ? toObjectId(domainId)
       : null;
-    const user = await User.findOne({
-      email: { $eq: normalizedEmail },
-      tenantId: tenantObjectId,
-    });
+    const user = await findUserByEmailAndTenant(
+      normalizedEmail,
+      tenantObjectId,
+    );
 
     if (!user) {
       return res
@@ -306,6 +345,7 @@ router.post("/login", async (req, res) => {
       const validPassword = await bcrypt.compare(password, user.passwordHash);
       if (!validPassword) {
         user.failedLoginAttempts += 1;
+
         if (
           authConfig.sessionRules.maxLoginAttempts > 0 &&
           user.failedLoginAttempts >= authConfig.sessionRules.maxLoginAttempts
@@ -314,6 +354,7 @@ router.post("/login", async (req, res) => {
             Date.now() + authConfig.sessionRules.lockoutDurationMinutes * 60000,
           );
           await user.save();
+
           return res.json({
             success: false,
             message: `Account locked for ${authConfig.sessionRules.lockoutDurationMinutes} minutes after ${authConfig.sessionRules.maxLoginAttempts} failed attempt${
@@ -332,33 +373,8 @@ router.post("/login", async (req, res) => {
       user.lockoutUntil = null;
 
       if (authConfig.loginMethods.otpLogin && !authConfig.mfa.enabled) {
-        const otp = generateOTP();
-        user.otp = otp;
-        user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
-        user.lastActivityAt = new Date();
-        await user.save();
-
-        try {
-          await sendOTPEmail(user.email, otp);
-        } catch (sendErr) {
-          return res.status(500).json({
-            success: false,
-            message: "Unable to deliver OTP email",
-          });
-        }
-
-        const sessionToken = jwt.sign(
-          {
-            email: user.email,
-            tenantId,
-            domainId: user.domainId ?? null,
-          },
-          process.env.JWT_SECRET,
-          {
-            expiresIn: "5m",
-          },
-        );
-
+        await sendOtpToUser(user);
+        const sessionToken = createSessionToken(user, tenantId);
         return res.json({
           success: true,
           message: "OTP has been sent to your email.",
@@ -375,20 +391,10 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const sessionToken = jwt.sign(
-      {
-        email: user.email,
-        tenantId,
-        domainId: user.domainId ?? null,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "5m",
-      },
-    );
+    const sessionToken = createSessionToken(user, tenantId);
 
     if (authConfig.mfa.enabled) {
-      if (!user.totpSecret) {
+      if (!user?.totpSecret) {
         const secret = speakeasy.generateSecret({
           name: `TenantConfig (${user.email})`,
         });
@@ -430,54 +436,10 @@ router.post("/login", async (req, res) => {
     }
 
     if (
-      !authConfig.loginMethods.emailPassword &&
-      authConfig.loginMethods.otpLogin
-    ) {
-      const otp = generateOTP();
-      user.otp = otp;
-      user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
-      user.lastActivityAt = new Date();
-      await user.save();
-
-      try {
-        await sendOTPEmail(user.email, otp);
-      } catch (sendErr) {
-        return res.status(500).json({
-          success: false,
-          message: "Unable to deliver OTP email",
-        });
-      }
-
-      return res.json({
-        success: true,
-        message: "OTP has been sent to your email.",
-        data: {
-          requiresMFA: true,
-          sessionToken,
-        },
-      });
-    }
-
-    if (
       authConfig.loginMethods.otpLogin &&
       !authConfig.loginMethods.emailPassword
     ) {
-      // OTP-only login with no MFA configured.
-      const otp = generateOTP();
-      user.otp = otp;
-      user.otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
-      user.lastActivityAt = new Date();
-      await user.save();
-
-      try {
-        await sendOTPEmail(user.email, otp);
-      } catch (sendErr) {
-        return res.status(500).json({
-          success: false,
-          message: "Unable to deliver OTP email",
-        });
-      }
-
+      await sendOtpToUser(user);
       return res.json({
         success: true,
         message: "OTP has been sent to your email.",
@@ -538,8 +500,8 @@ router.post("/verify-otp", async (req, res) => {
         .json({ success: false, message: "Invalid session" });
     }
 
-    const user = await User.findOne({ email: { $eq: normalizedEmail } });
-    if (!user || user.otp !== otp || user.otpExpiry < new Date()) {
+    const user = await findUserByEmail(normalizedEmail);
+    if (!user || user.otp !== otp || user.otpExpiry?.getTime() < Date.now()) {
       return res
         .status(401)
         .json({ success: false, message: "Invalid or expired OTP" });
@@ -599,8 +561,8 @@ router.post("/verify-totp", async (req, res) => {
         .json({ success: false, message: "Invalid session" });
     }
 
-    const user = await User.findOne({ email: { $eq: normalizedEmail } });
-    if (!user || !user.totpSecret) {
+    const user = await findUserByEmail(normalizedEmail);
+    if (!user?.totpSecret) {
       return res.status(401).json({
         success: false,
         message: "User is not enrolled for authenticator MFA.",
@@ -702,7 +664,7 @@ router.get("/oauth/google/callback", async (req, res) => {
     }
 
     const parsed = parseGoogleState(state);
-    if (!parsed || !parsed.tenantId) {
+    if (!parsed?.tenantId) {
       return res.status(400).send("Invalid OAuth state.");
     }
 
@@ -724,10 +686,7 @@ router.get("/oauth/google/callback", async (req, res) => {
     }
 
     const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
-    const user = await User.findOne({
-      email: { $eq: email },
-      tenantId: tenantObjectId,
-    });
+    const user = await findUserByEmailAndTenant(email, tenantObjectId);
     if (!user) {
       return res
         .status(403)
