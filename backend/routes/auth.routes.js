@@ -10,24 +10,46 @@ dotenv.config();
 const router = express.Router();
 
 // ── Lightweight Structured Logger ──────────────────────────────────────────────
+const sanitizeMeta = (meta = {}) => {
+  const allowedKeys = new Set(["count", "error"]);
+  return Object.fromEntries(
+    Object.entries(meta).filter(([key]) => allowedKeys.has(key)),
+  );
+};
+
 const logger = {
   info: (msg, meta = {}) => {
-    const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : "";
-    console.log(
-      `[${new Date().toISOString()}] [INFO]  [Auth] ${msg} ${metaStr}`,
-    );
+    const safeMeta = sanitizeMeta(meta);
+    const payload = {
+      timestamp: new Date().toISOString(),
+      level: "INFO",
+      component: "Auth",
+      message: msg,
+      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
+    };
+    console.log(JSON.stringify(payload));
   },
   warn: (msg, meta = {}) => {
-    const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : "";
-    console.warn(
-      `[${new Date().toISOString()}] [WARN]  [Auth] ${msg} ${metaStr}`,
-    );
+    const safeMeta = sanitizeMeta(meta);
+    const payload = {
+      timestamp: new Date().toISOString(),
+      level: "WARN",
+      component: "Auth",
+      message: msg,
+      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
+    };
+    console.warn(JSON.stringify(payload));
   },
   error: (msg, meta = {}) => {
-    const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : "";
-    console.error(
-      `[${new Date().toISOString()}] [ERROR] [Auth] ${msg} ${metaStr}`,
-    );
+    const safeMeta = sanitizeMeta(meta);
+    const payload = {
+      timestamp: new Date().toISOString(),
+      level: "ERROR",
+      component: "Auth",
+      message: msg,
+      ...(Object.keys(safeMeta).length ? { meta: safeMeta } : {}),
+    };
+    console.error(JSON.stringify(payload));
   },
 };
 
