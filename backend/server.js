@@ -11,10 +11,9 @@ import domainRoutes from "./routes/domain.routes.js";
 import mailingListRoutes from "./routes/mailingList.routes.js";
 import externalRoutes from "./routes/external.routes.js";
 import tokenRoutes from "./routes/token.routes.js";
-import dns from "node:dns";
-dns.setServers(["1.1.1.1", "8.8.8.8"]);
 dotenv.config();
 const app = express();
+app.disable("x-powered-by");
 
 // Middleware
 app.use(express.json());

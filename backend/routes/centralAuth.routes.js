@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
@@ -176,8 +177,7 @@ const buildRedirectUrl = (baseUrl, params = {}) => {
     : result.replace("http://localhost", "");
 };
 
-const generateOTP = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+const generateOTP = () => crypto.randomInt(100000, 1000000).toString();
 
 const isLockedOut = (entity) =>
   !!entity.lockoutUntil && entity.lockoutUntil.getTime() > Date.now();
