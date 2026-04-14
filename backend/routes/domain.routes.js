@@ -39,6 +39,41 @@ const apiError = (status, message) => {
   return error;
 };
 
+const validateParentDomain = async ({
+  parentDomainId,
+  user,
+  rootDomainIds,
+  notFoundMessage,
+  denialMessage,
+}) => {
+  if (!isValidObjectId(parentDomainId)) {
+    throw apiError(400, "Invalid parentDomainId format");
+  }
+
+  const parent = await Domain.findById(parentDomainId).select("tenantId");
+  if (!parent) {
+    throw apiError(404, notFoundMessage);
+  }
+
+  if (!isSameTenant(parent.tenantId, user.tenantId)) {
+    throw apiError(403, "Parent domain belongs to another tenant");
+  }
+
+  if (user.role === "DOMAIN_ADMIN") {
+    const hasParentAccess = await domainAccessService.isDomainWithinScope({
+      tenantId: user.tenantId,
+      targetDomainId: parentDomainId,
+      rootDomainIds,
+    });
+
+    if (!hasParentAccess) {
+      throw apiError(403, denialMessage);
+    }
+  }
+
+  return parent;
+};
+
 const buildCreateDomainPayload = async ({
   tenantId,
   domainName,
@@ -51,30 +86,13 @@ const buildCreateDomainPayload = async ({
   }
 
   if (parentDomainId) {
-    if (!isValidObjectId(parentDomainId)) {
-      throw apiError(400, "Invalid parentDomainId format");
-    }
-
-    const parent = await Domain.findById(parentDomainId).select("tenantId");
-    if (!parent) {
-      throw apiError(404, "Parent domain not found");
-    }
-
-    if (!isSameTenant(parent.tenantId, user.tenantId)) {
-      throw apiError(403, "Parent domain belongs to another tenant");
-    }
-
-    if (user.role === "DOMAIN_ADMIN") {
-      const hasParentAccess = await domainAccessService.isDomainWithinScope({
-        tenantId: user.tenantId,
-        targetDomainId: parentDomainId,
-        rootDomainIds,
-      });
-
-      if (!hasParentAccess) {
-        throw apiError(403, "Parent domain is outside your assigned scope");
-      }
-    }
+    await validateParentDomain({
+      parentDomainId,
+      user,
+      rootDomainIds,
+      notFoundMessage: "Parent domain not found",
+      denialMessage: "Parent domain is outside your assigned scope",
+    });
   } else if (user.role === "DOMAIN_ADMIN") {
     throw apiError(
       403,
@@ -109,30 +127,13 @@ const buildUpdateDomainPayload = async ({
 
   const parentDomainId = body.parentDomainId;
   if (parentDomainId) {
-    if (!isValidObjectId(parentDomainId)) {
-      throw apiError(400, "Invalid parentDomainId format");
-    }
-
-    const parent = await Domain.findById(parentDomainId).select("tenantId");
-    if (!parent) {
-      throw apiError(404, "Domain node not found.");
-    }
-
-    if (!isSameTenant(parent.tenantId, user.tenantId)) {
-      throw apiError(403, "Parent domain belongs to another tenant");
-    }
-
-    if (user.role === "DOMAIN_ADMIN") {
-      const hasParentAccess = await domainAccessService.isDomainWithinScope({
-        tenantId: user.tenantId,
-        targetDomainId: parentDomainId,
-        rootDomainIds,
-      });
-
-      if (!hasParentAccess) {
-        throw apiError(403, "Parent domain is outside your assigned scope");
-      }
-    }
+    await validateParentDomain({
+      parentDomainId,
+      user,
+      rootDomainIds,
+      notFoundMessage: "Domain node not found.",
+      denialMessage: "Parent domain is outside your assigned scope",
+    });
   } else if (user.role === "DOMAIN_ADMIN") {
     throw apiError(403, "Domain admins cannot move domains to the tenant root");
   }

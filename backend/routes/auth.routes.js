@@ -48,6 +48,18 @@ const normalizeEmail = (value) =>
 const normalizeString = (value) =>
   typeof value === "string" ? value.trim() : "";
 
+const requireValidEmail = (email, res) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    res.status(400).json({
+      success: false,
+      message: "Valid email is required",
+    });
+    return null;
+  }
+  return normalizedEmail;
+};
+
 const findAdminByEmail = async (email) => {
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return null;
@@ -204,15 +216,10 @@ router.post("/signup", async (req, res) => {
 // Login
 router.post("/login", async (req, res) => {
   const { email } = req.body;
-  const normalizedEmail = normalizeEmail(email);
-  logger.info("Login attempt", { email: normalizedEmail });
+  const normalizedEmail = requireValidEmail(email, res);
+  if (!normalizedEmail) return;
 
-  if (!normalizedEmail) {
-    return res.status(400).json({
-      success: false,
-      message: "Valid email is required",
-    });
-  }
+  logger.info("Login attempt", { email: normalizedEmail });
 
   try {
     const { password } = req.body;
@@ -261,15 +268,10 @@ router.post("/login", async (req, res) => {
 // Verify MFA
 router.post("/verify-mfa", async (req, res) => {
   const { email } = req.body;
-  const normalizedEmail = normalizeEmail(email);
-  logger.info("MFA verification attempt", { email: normalizedEmail });
+  const normalizedEmail = requireValidEmail(email, res);
+  if (!normalizedEmail) return;
 
-  if (!normalizedEmail) {
-    return res.status(400).json({
-      success: false,
-      message: "Valid email is required",
-    });
-  }
+  logger.info("MFA verification attempt", { email: normalizedEmail });
 
   try {
     const { otp, sessionToken } = req.body;
