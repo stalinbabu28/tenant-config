@@ -1,160 +1,117 @@
----
-title: |
-  Tenant Configuration Control Panel\
-  Sprint 2 Backend
----
+# Tenant Configuration Control Panel - Backend
 
-# Overview 
+Express + MongoDB backend for multi-tenant authentication configuration, domain-level overrides, and external integrations.
 
-A secure and full-featured Express/Node.js backend for managing tenant
-authentication configurations, admin sessions, and external service
-access.
+## Tech Stack
 
-# Tech Stack 
+- Node.js + Express 5
+- MongoDB + Mongoose
+- JWT (admin and external flows)
+- bcrypt, cookie-parser, cors, dotenv, nodemailer, speakeasy, google-auth-library
 
--   Express.js --- Lightweight web framework
+## Current Backend Modules
 
--   MongoDB + Mongoose --- Data modeling and persistence
+backend/
+|- middleware/ (auth, domain access, external auth, IP whitelist, rate limit)
+|- models/ (Admin, AuthConfig, DomainAuthConfig, Domain, MailingList, User, Client)
+|- routes/ (auth, auth-config, central-auth, domains, mailing-lists, external, token)
+|- services/ (domain access helpers)
+|- utils/ (JWT, auth config merge/validation, cycle detection, email)
+|- scripts/ (domain backfill)
+|- demo/ (external API demo scripts)
+|- keys/ (RSA key pair for external JWT flow)
+|- server.js
 
--   JWT (JSON Web Tokens) --- HS256 for admin sessions, RS256 for
-    machine-to-machine communication
+## Quick Start
 
--   Bcrypt --- Secure password hashing
+1) Install dependencies
 
--   Nodemailer --- Email delivery for MFA (OTP)
-
--   Cookie Parser --- HttpOnly cookie-based session management
-
-# Project Structure 
-
-    backend/
-    ├── keys/
-    │   ├── private.key
-    │   └── public.key
-    │
-    ├── middleware/
-    │   ├── auth.middleware.js
-    │   ├── externalAuth.middleware.js
-    │   ├── ipWhitelist.middleware.js
-    │   └── rateLimit.middleware.js
-    │
-    ├── models/
-    │   ├── Admin.js
-    │   ├── AuthConfig.js
-    │   └── Client.js
-    │
-    ├── routes/
-    │   ├── auth.routes.js
-    │   ├── authConfig.routes.js
-    │   ├── external.routes.js
-    │   └── token.routes.js
-    │
-    ├── utils/
-    │   └── jwt.util.js
-    │
-    ├── .env
-    ├── .gitignore
-    ├── package-lock.json
-    ├── package.json
-    └── server.js
-
-# Getting Started 
-
-## 1. Install Dependencies 
-
-``` {.bash language="bash"}
+```bash
 npm install
 ```
 
-## 2. Generate RSA Keys 
-``` {.bash language="bash"}
+2) Configure environment in backend/.env
+
+```env
+MONGO_URI=<your-mongodb-uri>
+JWT_SECRET=<your-jwt-secret>
+ALLOWED_ORIGINS=http://localhost:5173
+EMAIL_USER=<smtp-or-gmail-user>
+EMAIL_PASS=<smtp-or-gmail-password>
+GOOGLE_CLIENT_ID=<google-oauth-client-id>
+GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
+GOOGLE_REDIRECT_URI=<google-oauth-redirect>
+FRONTEND_BASE_URL=http://localhost:5173
+```
+
+3) Generate RSA keys (for external token flow)
+
+```bash
 ssh-keygen -t rsa -b 2048 -m PEM -f keys/private.key
 openssl rsa -in keys/private.key -pubout -outform PEM -out keys/public.key
 ```
 
-## 3. Start the Server
+4) Run backend
 
-``` {.bash language="bash"}
+```bash
 npm start
 ```
 
-The server runs at:
+Backend base URL: http://localhost:3001
 
-    http://localhost:3001
+## API Surface (Grouped)
 
-# Environment Variables 
+### Admin Auth (/api/admin)
 
-    MONGO_URI=your_mongodb_connection_string
-    JWT_SECRET=your_hs256_super_secret_key
-    ALLOWED_ORIGINS=http://localhost:5173
-    EMAIL_USER=your_google_email@gmail.com
-    EMAIL_PASS=your_google_app_password
-    NODE_ENV=development
+- POST /signup
+- POST /login
+- POST /verify-mfa
+- POST /resend-otp
+- POST /logout
+- GET /me
 
-# Authentication Flows 
+### Tenant Auth Config (/api/auth-config)
 
-## Admin MFA Login (HS256) 
+- GET /:tenantId
+- PUT /:tenantId
+- POST /:tenantId/cascade
+- POST /validate
 
-    POST /api/admin/login
-    -> Validate password
-    -> Generate OTP
-    -> Send email
-    -> Return session token
+### Domains (/api/domains)
 
-    POST /api/admin/verify-mfa
-    -> Validate OTP and session token
-    -> Set HttpOnly JWT cookie
+- POST /
+- GET /
+- PUT /:domainId
+- DELETE /:domainId
 
-## External Service Flow (RS256)
+### Mailing Lists (/api/mailing-lists)
 
-    POST /api/token
-    -> Validate client credentials
-    -> Check IP whitelist
-    -> Return RS256 token
+- GET /:tenantId
+- POST /
+- PUT /:id
 
-    GET /api/external/auth-config/:tenantId
-    -> Validate token and scope
-    -> Return tenant configuration
+### Central Auth (/api/central-auth)
 
-# Security Notes 
+- POST /identify
+- POST /signup
+- POST /login
+- POST /verify-otp
 
--   Cookies are configured as HttpOnly and Strict, and marked Secure in
-    production
+### External Integration
 
--   Dual JWT strategy:
+- POST /api/token/token
+- GET /api/external/auth-config/:tenantId
+- POST /api/external/tenant-signup
 
-    -   HS256 for admin sessions
+## Security Notes
 
-    -   RS256 for external APIs
+- Uses cookie-based admin session handling with credentialed CORS.
+- MFA flow is enforced via OTP verification before authenticated dashboard access.
+- External API endpoints are protected through dedicated middleware and client token flow.
+- Domain-level configuration is validated and merged with tenant defaults before use.
 
--   MFA uses a temporary session token with short expiration
+## Troubleshooting
 
--   Rate limiting prevents brute-force attacks
-
--   IP whitelisting is enforced for external clients
-
-# Public Key (RS256) 
-
-    -----BEGIN PUBLIC KEY-----
-    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhibLa/FFIhaCpQ4IL2yI
-    J5ia+jYWZ7VRDI8pNViMm4ptln1q7qXHt/zjERDqLQF2MLN1lvjFNOucNpS2enSI
-    aZUy/mdLwSvU/TjU5JwsdAK5ANLo9pqQoTvg8UCQCRn+gN1CMEhByXPSHR9QB9n4
-    DIYwwkACa0TPDHA1ggbnAIVb9ZI23dxQBUOZQ9nOOvwZcHQ5JSuhY6RPYnRzRfrw
-    2mkuIU9f9pd6txvqhm/lY1MOlrQJovbpoCZ5XavNh+XQfeHF5xPkWUBAAzCIUGPb
-    djj1p6pc15mnOdmSWmqLOhjppxn5cz/ViOexzIZHz3aMRC7ISElPua0Ek9v0Qot0
-    dwIDAQAB
-    -----END PUBLIC KEY-----
-
-# Main API Routes 
-
-  **Endpoint**                    **Method**   **Auth Required**    **Description**
-  ------------------------------- ------------ -------------------- --------------------------------------
-  /api/admin/login                POST         Public               Validate credentials and trigger OTP
-  /api/admin/verify-mfa           POST         Temporary Session    Validate OTP and issue JWT
-  /api/admin/me                   GET          requireAuth          Return admin profile
-  /api/admin/logout               POST         Public               Clear session cookie
-  /api/auth-config/:tenantId      GET          requireAuth          Fetch configuration
-  /api/auth-config/:tenantId      PUT          requireAuth          Update configuration
-  /api/auth-config/validate       POST         requireAuth          Validate configuration rules
-  /api/token                      POST         Client Credentials   Generate RS256 token
-  /api/external/auth-config/:id   GET          externalAuth         Fetch configuration via M2M
+- If CORS fails, verify ALLOWED_ORIGINS contains frontend URL exactly (comma-separated for multiple origins).
+- If external token validation fails, regenerate keys and verify keys/private.key and keys/public.key paths.
+- If auth-config cascade behaves unexpectedly, verify parentDomainId graph and run scripts/backfillDomainId.js when needed.
