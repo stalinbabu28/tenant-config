@@ -11,8 +11,11 @@ import domainRoutes from "./routes/domain.routes.js";
 import mailingListRoutes from "./routes/mailingList.routes.js";
 import externalRoutes from "./routes/external.routes.js";
 import tokenRoutes from "./routes/token.routes.js";
-/* import dns from "node:dns";
-dns.setServers(["1.1.1.1", "8.8.8.8"]); */
+import academicPolicyRoutes from "./routes/academicPolicy.routes.js";
+import auditLogRoutes from "./routes/auditLog.routes.js";
+import { shouldEnforcePolicy } from "./middleware/attendanceEnforcer.middleware.js";
+import dns from "node:dns";
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 dotenv.config();
 const app = express();
 app.disable("x-powered-by");
@@ -35,6 +38,8 @@ app.use("/api/admin", authRoutes);
 app.use("/api/external", externalRoutes);
 app.use("/api/token", tokenRoutes);
 app.use("/api/mailing-lists", requireAuth, mailingListRoutes);
+app.use("/api/academic-policies", requireAuth, academicPolicyRoutes);
+app.use("/api/audit-logs", requireAuth, auditLogRoutes);
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
